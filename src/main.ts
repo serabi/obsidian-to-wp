@@ -160,3 +160,4 @@ export default class ObsidianToWordPress extends Plugin {
 		}
 	}
 }
+

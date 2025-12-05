@@ -461,3 +461,4 @@ export class MarkdownConverter {
 			.replace(/'/g, "&#039;");
 	}
 }
+

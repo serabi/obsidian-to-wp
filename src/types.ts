@@ -128,3 +128,4 @@ export interface CalloutInfo {
 	foldable: boolean;
 	defaultFolded: boolean;
 }
+

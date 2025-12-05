@@ -213,3 +213,4 @@ export function getTitle(frontmatter: PostFrontmatter, filename: string): string
 	// Remove .md extension and return
 	return filename.replace(/\.md$/, "");
 }
+

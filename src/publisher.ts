@@ -237,3 +237,4 @@ export class Publisher {
 		return normalizePath(`${noteFolder}/${imagePath}`);
 	}
 }
+

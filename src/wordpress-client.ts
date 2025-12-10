@@ -1,7 +1,3 @@
-/**
- * WordPress REST API client for authentication, posts, and media
- */
-
 import { requestUrl, RequestUrlParam } from "obsidian";
 import type {
 	PluginSettings,
@@ -19,7 +15,6 @@ export interface ConnectionTestResult {
 	error?: string;
 }
 
-/** WordPress REST API client */
 export class WordPressClient {
 	private getSettings: () => PluginSettings;
 
@@ -27,20 +22,17 @@ export class WordPressClient {
 		this.getSettings = getSettings;
 	}
 
-	/** Get the base REST API URL */
 	private get apiBase(): string {
 		const settings = this.getSettings();
 		return `${settings.siteUrl}/wp-json/wp/v2`;
 	}
 
-	/** Get Basic Auth header value */
 	private get authHeader(): string {
 		const settings = this.getSettings();
 		const credentials = `${settings.username}:${settings.applicationPassword}`;
 		return `Basic ${btoa(credentials)}`;
 	}
 
-	/** Make an authenticated request to the WordPress REST API */
 	private async request<T>(
 		endpoint: string,
 		options: Partial<RequestUrlParam> = {}
@@ -73,7 +65,6 @@ export class WordPressClient {
 		return response.json as T;
 	}
 
-	/** Test the WordPress connection */
 	async testConnection(): Promise<ConnectionTestResult> {
 		try {
 			const user = await this.request<{ name: string }>("/users/me");
@@ -89,7 +80,6 @@ export class WordPressClient {
 		}
 	}
 
-	/** Create a new post */
 	async createPost(payload: WordPressPostPayload): Promise<WordPressPost> {
 		return this.request<WordPressPost>("/posts", {
 			method: "POST",
@@ -97,7 +87,6 @@ export class WordPressClient {
 		});
 	}
 
-	/** Update an existing post */
 	async updatePost(postId: number, payload: WordPressPostPayload): Promise<WordPressPost> {
 		return this.request<WordPressPost>(`/posts/${postId}`, {
 			method: "PUT",
@@ -105,7 +94,6 @@ export class WordPressClient {
 		});
 	}
 
-	/** Get a post by ID */
 	async getPost(postId: number): Promise<WordPressPost | null> {
 		try {
 			return await this.request<WordPressPost>(`/posts/${postId}`);
@@ -114,7 +102,6 @@ export class WordPressClient {
 		}
 	}
 
-	/** Upload media to WordPress */
 	async uploadMedia(
 		filename: string,
 		data: ArrayBuffer,
@@ -142,9 +129,7 @@ export class WordPressClient {
 		return response.json as WordPressMedia;
 	}
 
-	/** Get or create a category by name */
 	async getOrCreateCategory(name: string): Promise<number> {
-		// First, try to find existing category
 		const existing = await this.request<WordPressTerm[]>(
 			`/categories?search=${encodeURIComponent(name)}&per_page=100`
 		);
@@ -156,7 +141,6 @@ export class WordPressClient {
 			return match.id;
 		}
 
-		// Create new category
 		const created = await this.request<WordPressTerm>("/categories", {
 			method: "POST",
 			body: JSON.stringify({ name }),
@@ -165,9 +149,7 @@ export class WordPressClient {
 		return created.id;
 	}
 
-	/** Get or create a tag by name */
 	async getOrCreateTag(name: string): Promise<number> {
-		// First, try to find existing tag
 		const existing = await this.request<WordPressTerm[]>(
 			`/tags?search=${encodeURIComponent(name)}&per_page=100`
 		);
@@ -179,7 +161,6 @@ export class WordPressClient {
 			return match.id;
 		}
 
-		// Create new tag
 		const created = await this.request<WordPressTerm>("/tags", {
 			method: "POST",
 			body: JSON.stringify({ name }),
@@ -188,7 +169,6 @@ export class WordPressClient {
 		return created.id;
 	}
 
-	/** Resolve category names to IDs */
 	async resolveCategoryIds(names: string[]): Promise<number[]> {
 		const ids: number[] = [];
 		for (const name of names) {
@@ -202,7 +182,6 @@ export class WordPressClient {
 		return ids;
 	}
 
-	/** Resolve tag names to IDs */
 	async resolveTagIds(names: string[]): Promise<number[]> {
 		const ids: number[] = [];
 		for (const name of names) {
@@ -216,4 +195,5 @@ export class WordPressClient {
 		return ids;
 	}
 }
+
 

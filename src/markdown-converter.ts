@@ -4,36 +4,27 @@
 
 import type { ImageReference, CalloutInfo, UploadedImage } from "./types";
 
-/** 
- * Main converter class for transforming Obsidian markdown to Gutenberg blocks
- */
 export class MarkdownConverter {
 	private imageMap: Map<string, UploadedImage> = new Map();
 
-	/** Set the image URL mapping for converting local paths to WordPress URLs */
 	setImageMap(map: Map<string, UploadedImage>): void {
 		this.imageMap = map;
 	}
 
-	/** Convert full markdown content to Gutenberg block format */
 	convert(markdown: string): string {
-		// Remove frontmatter first (it's handled separately)
 		const content = this.removeFrontmatter(markdown);
 
-		// Split into blocks and convert each
 		const blocks = this.splitIntoBlocks(content);
 		const gutenbergBlocks = blocks.map((block) => this.convertBlock(block));
 
 		return gutenbergBlocks.join("\n\n");
 	}
 
-	/** Remove YAML frontmatter from content */
 	private removeFrontmatter(content: string): string {
 		const frontmatterRegex = /^---\n[\s\S]*?\n---\n*/;
 		return content.replace(frontmatterRegex, "").trim();
 	}
 
-	/** Split markdown content into logical blocks */
 	private splitIntoBlocks(content: string): string[] {
 		const blocks: string[] = [];
 		const lines = content.split("\n");
@@ -44,7 +35,6 @@ export class MarkdownConverter {
 		for (let i = 0; i < lines.length; i++) {
 			const line = lines[i];
 
-			// Handle code blocks
 			if (line.startsWith("```")) {
 				if (inCodeBlock) {
 					currentBlock.push(line);
@@ -67,7 +57,6 @@ export class MarkdownConverter {
 				continue;
 			}
 
-			// Handle callouts (> [!type] format)
 			if (line.match(/^>\s*\[!/)) {
 				if (currentBlock.length > 0) {
 					blocks.push(currentBlock.join("\n"));
@@ -78,7 +67,6 @@ export class MarkdownConverter {
 				continue;
 			}
 
-			// Continue callout if line starts with >
 			if (inCallout) {
 				if (line.startsWith(">") || line.trim() === "") {
 					currentBlock.push(line);
@@ -90,7 +78,6 @@ export class MarkdownConverter {
 				}
 			}
 
-			// Handle headers
 			if (line.match(/^#{1,6}\s/)) {
 				if (currentBlock.length > 0) {
 					blocks.push(currentBlock.join("\n"));
@@ -100,7 +87,6 @@ export class MarkdownConverter {
 				continue;
 			}
 
-			// Handle horizontal rules
 			if (line.match(/^(-{3,}|\*{3,}|_{3,})$/)) {
 				if (currentBlock.length > 0) {
 					blocks.push(currentBlock.join("\n"));
@@ -110,9 +96,7 @@ export class MarkdownConverter {
 				continue;
 			}
 
-			// Handle lists (unordered and ordered)
 			if (line.match(/^(\s*[-*+]|\s*\d+\.)\s/)) {
-				// Check if we're continuing a list or starting a new one
 				if (currentBlock.length > 0 && !currentBlock[0].match(/^(\s*[-*+]|\s*\d+\.)\s/)) {
 					blocks.push(currentBlock.join("\n"));
 					currentBlock = [];
@@ -121,7 +105,6 @@ export class MarkdownConverter {
 				continue;
 			}
 
-			// Handle blockquotes (not callouts)
 			if (line.startsWith(">") && !line.match(/^>\s*\[!/)) {
 				if (currentBlock.length > 0 && !currentBlock[0].startsWith(">")) {
 					blocks.push(currentBlock.join("\n"));
@@ -131,7 +114,6 @@ export class MarkdownConverter {
 				continue;
 			}
 
-			// Handle images on their own line
 			if (line.match(/^!\[.*?\]\(.*?\)$/) || line.match(/^!\[\[.*?\]\]$/)) {
 				if (currentBlock.length > 0) {
 					blocks.push(currentBlock.join("\n"));
@@ -141,7 +123,6 @@ export class MarkdownConverter {
 				continue;
 			}
 
-			// Empty line - end current block
 			if (line.trim() === "") {
 				if (currentBlock.length > 0) {
 					blocks.push(currentBlock.join("\n"));
@@ -150,11 +131,9 @@ export class MarkdownConverter {
 				continue;
 			}
 
-			// Regular paragraph content
 			currentBlock.push(line);
 		}
 
-		// Don't forget the last block
 		if (currentBlock.length > 0) {
 			blocks.push(currentBlock.join("\n"));
 		}
@@ -162,11 +141,9 @@ export class MarkdownConverter {
 		return blocks.filter((b) => b.trim() !== "");
 	}
 
-	/** Convert a single block to Gutenberg format */
 	private convertBlock(block: string): string {
 		const trimmed = block.trim();
 
-		// Headers
 		const headerMatch = trimmed.match(/^(#{1,6})\s+(.+)$/);
 		if (headerMatch) {
 			const level = headerMatch[1].length;
@@ -174,42 +151,34 @@ export class MarkdownConverter {
 			return `<!-- wp:heading {"level":${level}} -->\n<h${level}>${text}</h${level}>\n<!-- /wp:heading -->`;
 		}
 
-		// Code blocks
 		if (trimmed.startsWith("```")) {
 			return this.convertCodeBlock(trimmed);
 		}
 
-		// Callouts
 		if (trimmed.match(/^>\s*\[!/)) {
 			return this.convertCallout(trimmed);
 		}
 
-		// Blockquotes
 		if (trimmed.startsWith(">")) {
 			return this.convertBlockquote(trimmed);
 		}
 
-		// Horizontal rule
 		if (trimmed.match(/^(-{3,}|\*{3,}|_{3,})$/)) {
 			return "<!-- wp:separator -->\n<hr class=\"wp-block-separator has-alpha-channel-opacity\"/>\n<!-- /wp:separator -->";
 		}
 
-		// Ordered lists
 		if (trimmed.match(/^\d+\.\s/)) {
 			return this.convertOrderedList(trimmed);
 		}
 
-		// Unordered lists
 		if (trimmed.match(/^[-*+]\s/)) {
 			return this.convertUnorderedList(trimmed);
 		}
 
-		// Images (standalone)
 		if (trimmed.match(/^!\[.*?\]\(.*?\)$/) || trimmed.match(/^!\[\[.*?\]\]$/)) {
 			return this.convertImage(trimmed);
 		}
 
-		// Default: paragraph
 		return this.convertParagraph(trimmed);
 	}
 
@@ -227,15 +196,11 @@ export class MarkdownConverter {
 		return `<!-- wp:code -->\n<pre class="wp-block-code"><code>${escapedCode}</code></pre>\n<!-- /wp:code -->`;
 	}
 
-	/** Convert an Obsidian callout to a styled quote block */
 	private convertCallout(block: string): string {
 		const calloutInfo = this.parseCallout(block);
-		
-		// Convert to a styled blockquote with a title
 		const contentHtml = this.convertInlineFormatting(calloutInfo.content);
 		const typeClass = `callout-${calloutInfo.type.toLowerCase()}`;
 		
-		// Create a quote block with callout styling
 		return `<!-- wp:quote {"className":"${typeClass}"} -->
 <blockquote class="wp-block-quote ${typeClass}"><p><strong>${this.escapeHtml(calloutInfo.title)}</strong></p><p>${contentHtml}</p></blockquote>
 <!-- /wp:quote -->`;
@@ -245,8 +210,6 @@ export class MarkdownConverter {
 	private parseCallout(block: string): CalloutInfo {
 		const lines = block.split("\n");
 		const firstLine = lines[0];
-		
-		// Match > [!type] or > [!type]+ or > [!type]- with optional title
 		const headerMatch = firstLine.match(/^>\s*\[!(\w+)\]([-+])?\s*(.*)$/);
 		
 		let type = "note";
@@ -266,7 +229,6 @@ export class MarkdownConverter {
 			title = headerMatch[3] || type.charAt(0).toUpperCase() + type.slice(1);
 		}
 
-		// Get content (remaining lines, stripped of > prefix)
 		const content = lines
 			.slice(1)
 			.map((line) => line.replace(/^>\s?/, ""))
@@ -276,7 +238,6 @@ export class MarkdownConverter {
 		return { type, title, content, foldable, defaultFolded };
 	}
 
-	/** Convert a blockquote */
 	private convertBlockquote(block: string): string {
 		const content = block
 			.split("\n")
@@ -286,21 +247,18 @@ export class MarkdownConverter {
 		return `<!-- wp:quote -->\n<blockquote class="wp-block-quote"><p>${html}</p></blockquote>\n<!-- /wp:quote -->`;
 	}
 
-	/** Convert an unordered list */
 	private convertUnorderedList(block: string): string {
 		const items = this.parseListItems(block, /^[-*+]\s/);
 		const listHtml = items.map((item) => `<li>${this.convertInlineFormatting(item)}</li>`).join("");
 		return `<!-- wp:list -->\n<ul class="wp-block-list">${listHtml}</ul>\n<!-- /wp:list -->`;
 	}
 
-	/** Convert an ordered list */
 	private convertOrderedList(block: string): string {
 		const items = this.parseListItems(block, /^\d+\.\s/);
 		const listHtml = items.map((item) => `<li>${this.convertInlineFormatting(item)}</li>`).join("");
 		return `<!-- wp:list {"ordered":true} -->\n<ol class="wp-block-list">${listHtml}</ol>\n<!-- /wp:list -->`;
 	}
 
-	/** Parse list items from a block */
 	private parseListItems(block: string, pattern: RegExp): string[] {
 		const lines = block.split("\n");
 		const items: string[] = [];
@@ -313,7 +271,6 @@ export class MarkdownConverter {
 				}
 				currentItem = line.replace(pattern, "");
 			} else if (line.match(/^\s+/) && currentItem) {
-				// Continuation of previous item
 				currentItem += " " + line.trim();
 			}
 		}
@@ -325,7 +282,6 @@ export class MarkdownConverter {
 		return items;
 	}
 
-	/** Convert a standalone image */
 	private convertImage(block: string): string {
 		const imageRef = this.extractImageReference(block);
 		if (!imageRef) {
@@ -339,17 +295,14 @@ export class MarkdownConverter {
 		return `<!-- wp:image -->\n<figure class="wp-block-image"><img src="${url}" alt="${alt}"/></figure>\n<!-- /wp:image -->`;
 	}
 
-	/** Convert a paragraph with inline formatting */
 	private convertParagraph(block: string): string {
 		const html = this.convertInlineFormatting(block);
 		return `<!-- wp:paragraph -->\n<p>${html}</p>\n<!-- /wp:paragraph -->`;
 	}
 
-	/** Convert inline markdown formatting to HTML */
 	private convertInlineFormatting(text: string): string {
 		let result = text;
 
-		// Handle inline images first (both syntaxes)
 		result = result.replace(/!\[\[([^\]]+)\]\]/g, (match, path) => {
 			const uploaded = this.imageMap.get(path);
 			const url = uploaded?.wordpressUrl || path;
@@ -362,43 +315,33 @@ export class MarkdownConverter {
 			return `<img src="${url}" alt="${this.escapeHtml(alt)}"/>`;
 		});
 
-		// Convert wikilinks to text (or could be converted to links)
-		result = result.replace(/\[\[([^\]|]+)\|([^\]]+)\]\]/g, "$2"); // [[link|display]]
-		result = result.replace(/\[\[([^\]]+)\]\]/g, "$1"); // [[link]]
+		result = result.replace(/\[\[([^\]|]+)\|([^\]]+)\]\]/g, "$2");
+		result = result.replace(/\[\[([^\]]+)\]\]/g, "$1");
 
-		// Bold and italic combined (***text*** or ___text___)
 		result = result.replace(/\*\*\*([^*]+)\*\*\*/g, "<strong><em>$1</em></strong>");
 		result = result.replace(/___([^_]+)___/g, "<strong><em>$1</em></strong>");
 
-		// Bold (**text** or __text__)
 		result = result.replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>");
 		result = result.replace(/__([^_]+)__/g, "<strong>$1</strong>");
 
-		// Italic (*text* or _text_)
 		result = result.replace(/\*([^*]+)\*/g, "<em>$1</em>");
 		result = result.replace(/(?<![a-zA-Z])_([^_]+)_(?![a-zA-Z])/g, "<em>$1</em>");
 
-		// Strikethrough (~~text~~)
 		result = result.replace(/~~([^~]+)~~/g, "<del>$1</del>");
 
-		// Inline code (`code`)
 		result = result.replace(/`([^`]+)`/g, "<code>$1</code>");
 
-		// Highlights (==text==)
 		result = result.replace(/==([^=]+)==/g, "<mark>$1</mark>");
 
-		// Links [text](url)
 		result = result.replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2">$1</a>');
 
 		return result;
 	}
 
-	/** Extract all image references from markdown content */
 	extractImageReferences(markdown: string): ImageReference[] {
 		const images: ImageReference[] = [];
 		const content = this.removeFrontmatter(markdown);
 
-		// Standard markdown images: ![alt](path)
 		const standardRegex = /!\[([^\]]*)\]\(([^)]+)\)/g;
 		let match;
 		while ((match = standardRegex.exec(content)) !== null) {
@@ -410,7 +353,6 @@ export class MarkdownConverter {
 			});
 		}
 
-		// Wikilink images: ![[path]] or ![[path|alt]]
 		const wikilinkRegex = /!\[\[([^\]|]+)(?:\|([^\]]+))?\]\]/g;
 		while ((match = wikilinkRegex.exec(content)) !== null) {
 			images.push({
@@ -424,9 +366,7 @@ export class MarkdownConverter {
 		return images;
 	}
 
-	/** Extract image reference from a single image block */
 	private extractImageReference(block: string): ImageReference | null {
-		// Standard markdown: ![alt](path)
 		const standardMatch = block.match(/!\[([^\]]*)\]\(([^)]+)\)/);
 		if (standardMatch) {
 			return {
@@ -437,7 +377,6 @@ export class MarkdownConverter {
 			};
 		}
 
-		// Wikilink: ![[path]] or ![[path|alt]]
 		const wikilinkMatch = block.match(/!\[\[([^\]|]+)(?:\|([^\]]+))?\]\]/);
 		if (wikilinkMatch) {
 			return {
@@ -451,7 +390,6 @@ export class MarkdownConverter {
 		return null;
 	}
 
-	/** Escape HTML special characters */
 	private escapeHtml(text: string): string {
 		return text
 			.replace(/&/g, "&amp;")
@@ -461,4 +399,5 @@ export class MarkdownConverter {
 			.replace(/'/g, "&#039;");
 	}
 }
+
 

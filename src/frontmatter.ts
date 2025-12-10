@@ -13,55 +13,57 @@ export function parseFrontmatter(content: string): PostFrontmatter {
 	const yamlContent = frontmatterMatch[1];
 	
 	try {
-		const parsed = yaml.load(yamlContent) as any;
+		const parsed: unknown = yaml.load(yamlContent, { schema: yaml.FAILSAFE_SCHEMA });
 		
-		if (!parsed || typeof parsed !== "object") {
+		if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
 			return {};
 		}
 
+		const parsedFrontmatter = parsed as Record<string, unknown>;
+
 		const result: PostFrontmatter = {};
 
-		if (parsed.title !== undefined) {
-			result.title = String(parsed.title);
+		if (parsedFrontmatter.title !== undefined) {
+			result.title = String(parsedFrontmatter.title);
 		}
-		if (parsed.slug !== undefined) {
-			result.slug = String(parsed.slug);
+		if (parsedFrontmatter.slug !== undefined) {
+			result.slug = String(parsedFrontmatter.slug);
 		}
-		if (parsed.status !== undefined) {
-			const status = String(parsed.status);
+		if (parsedFrontmatter.status !== undefined) {
+			const status = String(parsedFrontmatter.status);
 			if (VALID_STATUSES.includes(status as PostStatus)) {
 				result.status = status as PostStatus;
 			}
 		}
-		if (parsed.excerpt !== undefined) {
-			result.excerpt = String(parsed.excerpt);
+		if (parsedFrontmatter.excerpt !== undefined) {
+			result.excerpt = String(parsedFrontmatter.excerpt);
 		}
-		if (parsed.date !== undefined) {
-			result.date = String(parsed.date);
+		if (parsedFrontmatter.date !== undefined) {
+			result.date = String(parsedFrontmatter.date);
 		}
-		if (parsed.wp_post_id !== undefined) {
-			const id = typeof parsed.wp_post_id === "number" 
-				? parsed.wp_post_id 
-				: parseInt(String(parsed.wp_post_id), 10);
+		if (parsedFrontmatter.wp_post_id !== undefined) {
+			const id = typeof parsedFrontmatter.wp_post_id === "number" 
+				? parsedFrontmatter.wp_post_id 
+				: parseInt(String(parsedFrontmatter.wp_post_id), 10);
 			if (!isNaN(id)) {
 				result.wp_post_id = id;
 			}
 		}
-		if (parsed.wp_post_url !== undefined) {
-			result.wp_post_url = String(parsed.wp_post_url);
+		if (parsedFrontmatter.wp_post_url !== undefined) {
+			result.wp_post_url = String(parsedFrontmatter.wp_post_url);
 		}
-		if (parsed.categories !== undefined) {
-			if (Array.isArray(parsed.categories)) {
-				result.categories = parsed.categories.map((c: any) => String(c));
-			} else if (typeof parsed.categories === "string" || typeof parsed.categories === "number") {
-				result.categories = [String(parsed.categories)];
+		if (parsedFrontmatter.categories !== undefined) {
+			if (Array.isArray(parsedFrontmatter.categories)) {
+				result.categories = parsedFrontmatter.categories.map((c) => String(c));
+			} else if (typeof parsedFrontmatter.categories === "string" || typeof parsedFrontmatter.categories === "number") {
+				result.categories = [String(parsedFrontmatter.categories)];
 			}
 		}
-		if (parsed.tags !== undefined) {
-			if (Array.isArray(parsed.tags)) {
-				result.tags = parsed.tags.map((t: any) => String(t));
-			} else if (typeof parsed.tags === "string") {
-				result.tags = [parsed.tags];
+		if (parsedFrontmatter.tags !== undefined) {
+			if (Array.isArray(parsedFrontmatter.tags)) {
+				result.tags = parsedFrontmatter.tags.map((t) => String(t));
+			} else if (typeof parsedFrontmatter.tags === "string" || typeof parsedFrontmatter.tags === "number") {
+				result.tags = [String(parsedFrontmatter.tags)];
 			}
 		}
 
@@ -91,7 +93,7 @@ export function updateFrontmatter(
 }
 
 function generateYaml(frontmatter: PostFrontmatter): string {
-	const yamlObj: any = {};
+	const yamlObj: Record<string, unknown> = {};
 
 	if (frontmatter.title !== undefined) {
 		yamlObj.title = frontmatter.title;

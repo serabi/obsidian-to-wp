@@ -3,8 +3,8 @@
  * Publishes Obsidian notes to WordPress as Gutenberg block-formatted posts
  */
 
-import { Plugin, TFile, Menu, Notice, TAbstractFile } from "obsidian";
-import type { PluginSettings } from "./types";
+import { Plugin, TFile, Menu, Notice, TAbstractFile, normalizePath, TFolder } from "obsidian";
+import type { PluginSettings, PostStatus } from "./types";
 import { DEFAULT_SETTINGS, SettingsTab } from "./settings";
 import { WordPressClient } from "./wordpress-client";
 import { Publisher } from "./publisher";
@@ -17,17 +17,13 @@ export default class ObsidianToWordPress extends Plugin {
 	async onload(): Promise<void> {
 		await this.loadSettings();
 
-		// Initialize WordPress client
 		this.wordpressClient = new WordPressClient(() => this.settings);
-
-		// Initialize publisher
 		this.publisher = new Publisher(
 			this.app,
 			() => this.settings,
 			this.wordpressClient
 		);
 
-		// Add command: Publish current note to WordPress
 		this.addCommand({
 			id: "publish-to-wordpress",
 			name: "Publish current note to WordPress",
@@ -43,7 +39,6 @@ export default class ObsidianToWordPress extends Plugin {
 			},
 		});
 
-		// Add command: Publish current note as draft
 		this.addCommand({
 			id: "publish-to-wordpress-draft",
 			name: "Publish current note to WordPress as draft",
@@ -59,7 +54,12 @@ export default class ObsidianToWordPress extends Plugin {
 			},
 		});
 
-		// Register file menu (right-click context menu in file explorer)
+		this.addCommand({
+			id: "create-wordpress-draft-note",
+			name: "Create WordPress draft note",
+			callback: () => this.createDraftNote(),
+		});
+
 		this.registerEvent(
 			this.app.workspace.on("file-menu", (menu: Menu, file: TAbstractFile) => {
 				if (file instanceof TFile && this.publisher.isPublishable(file)) {
@@ -68,14 +68,13 @@ export default class ObsidianToWordPress extends Plugin {
 							.setTitle("Publish to WordPress")
 							.setIcon("upload")
 							.onClick(async () => {
-								await this.publishFile(file);
+								await this.publishFile(file, "publish");
 							});
 					});
 				}
 			})
 		);
 
-		// Register editor menu (right-click in editor)
 		this.registerEvent(
 			this.app.workspace.on("editor-menu", (menu: Menu) => {
 				const file = this.app.workspace.getActiveFile();
@@ -85,19 +84,17 @@ export default class ObsidianToWordPress extends Plugin {
 							.setTitle("Publish to WordPress")
 							.setIcon("upload")
 							.onClick(async () => {
-								await this.publishFile(file);
+								await this.publishFile(file, "publish");
 							});
 					});
 				}
 			})
 		);
 
-		// Add settings tab
 		this.addSettingTab(new SettingsTab(this.app, this));
 	}
 
 	onunload(): void {
-		// Cleanup handled automatically by register* helpers
 	}
 
 	async loadSettings(): Promise<void> {
@@ -108,21 +105,15 @@ export default class ObsidianToWordPress extends Plugin {
 		await this.saveData(this.settings);
 	}
 
-	/**
-	 * Publish the currently active note
-	 */
 	private async publishCurrentNote(): Promise<void> {
 		const file = this.app.workspace.getActiveFile();
 		if (!file) {
 			new Notice("No active file to publish");
 			return;
 		}
-		await this.publishFile(file);
+		await this.publishFile(file, "publish");
 	}
 
-	/**
-	 * Publish the currently active note as a draft (override status)
-	 */
 	private async publishCurrentNoteAsDraft(): Promise<void> {
 		const file = this.app.workspace.getActiveFile();
 		if (!file) {
@@ -130,21 +121,10 @@ export default class ObsidianToWordPress extends Plugin {
 			return;
 		}
 
-		// Temporarily override default status
-		const originalStatus = this.settings.defaultPostStatus;
-		this.settings.defaultPostStatus = "draft";
-		
-		try {
-			await this.publishFile(file);
-		} finally {
-			this.settings.defaultPostStatus = originalStatus;
-		}
+		await this.publishFile(file, "draft");
 	}
 
-	/**
-	 * Publish a specific file
-	 */
-	private async publishFile(file: TFile): Promise<void> {
+	private async publishFile(file: TFile, overrideStatus?: PostStatus): Promise<void> {
 		if (!this.publisher.isPublishable(file)) {
 			new Notice(`Cannot publish: File is not in the publishable folder`);
 			return;
@@ -152,12 +132,80 @@ export default class ObsidianToWordPress extends Plugin {
 
 		new Notice(`Publishing ${file.basename}...`);
 		
-		const result = await this.publisher.publish(file);
+		const result = await this.publisher.publish(file, overrideStatus);
 		
 		if (result.success && result.postUrl) {
-			// Offer to open the post in browser
-			new Notice(`Published successfully! Click to view post.`, 5000);
+			new Notice(`Published successfully! Post URL: ${result.postUrl}`, 5000);
+		}
+	}
+
+	private async createDraftNote(): Promise<void> {
+		const publishFolder = this.settings.publishableFolder ? normalizePath(this.settings.publishableFolder) : "";
+		
+		let baseFolder = this.app.vault.getRoot().path || "/";
+
+		if (publishFolder) {
+			const target = this.app.vault.getAbstractFileByPath(publishFolder);
+			if (!target) {
+				try {
+					await this.app.vault.createFolder(publishFolder);
+				} catch (error) {
+					const message = error instanceof Error ? error.message : "Unknown error";
+					new Notice(`Failed to create folder: ${message}`);
+					return;
+				}
+			} else if (!(target instanceof TFolder)) {
+				new Notice(`Publishable folder path is not a folder: ${publishFolder}`);
+				return;
+			}
+			baseFolder = publishFolder;
+		}
+
+		const timestamp = new Date();
+		const parts = [
+			timestamp.getFullYear(),
+			String(timestamp.getMonth() + 1).padStart(2, "0"),
+			String(timestamp.getDate()).padStart(2, "0"),
+			String(timestamp.getHours()).padStart(2, "0"),
+			String(timestamp.getMinutes()).padStart(2, "0"),
+			String(timestamp.getSeconds()).padStart(2, "0"),
+		];
+		const baseName = `draft-${parts.join("")}.md`;
+
+		let targetPath = publishFolder ? normalizePath(`${baseFolder}/${baseName}`) : baseName;
+		let counter = 1;
+		while (this.app.vault.getAbstractFileByPath(targetPath)) {
+			const suffix = `-${counter}`;
+			const name = baseName.replace(/\.md$/, `${suffix}.md`);
+			targetPath = publishFolder ? normalizePath(`${baseFolder}/${name}`) : name;
+			counter += 1;
+		}
+
+		const title = "Draft title";
+		const content = `---
+title: ${title}
+slug: 
+status: draft
+categories:
+  - 
+tags:
+  - 
+excerpt: 
+date: 
+---
+
+# ${title}
+`;
+
+		try {
+			const file = await this.app.vault.create(targetPath, content);
+			await this.app.workspace.getLeaf(true).openFile(file);
+			new Notice(`Draft created: ${file.path}`);
+		} catch (error) {
+			const message = error instanceof Error ? error.message : "Unknown error";
+			new Notice(`Failed to create draft: ${message}`);
 		}
 	}
 }
+
 

@@ -6,3 +6,58 @@ available in the app when your plugin is enabled.
 If your plugin does not need CSS, delete this file.
 
 */
+
+/* Folder selector styles */
+.folder-selector {
+	display: flex;
+	flex-direction: column;
+	gap: 0.5em;
+	width: 100%;
+}
+
+.folder-input {
+	flex: 1;
+}
+
+.folder-buttons {
+	display: flex;
+	gap: 0.5em;
+}
+
+.folder-buttons button {
+	flex: 1;
+}
+
+/* Folder picker modal styles */
+.folder-picker-input {
+	margin-bottom: 1em;
+}
+
+.folder-list {
+	max-height: 300px;
+	overflow-y: auto;
+	margin-bottom: 1em;
+	border: 1px solid var(--background-modifier-border);
+	border-radius: 4px;
+}
+
+.folder-item {
+	padding: 0.5em;
+	cursor: pointer;
+	border-bottom: 1px solid var(--background-modifier-border);
+	transition: background-color 0.15s ease;
+}
+
+.folder-item:last-child {
+	border-bottom: none;
+}
+
+.folder-item:hover {
+	background-color: var(--background-modifier-hover);
+}
+
+.folder-picker-buttons {
+	display: flex;
+	gap: 0.5em;
+	justify-content: flex-end;
+}

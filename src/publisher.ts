@@ -1,5 +1,5 @@
 import { App, TFile, Notice, normalizePath } from "obsidian";
-import type { PluginSettings, PublishResult, UploadedImage, WordPressPostPayload } from "./types";
+import type { PluginSettings, PublishResult, UploadedImage, WordPressPostPayload, PostStatus } from "./types";
 import { WordPressClient } from "./wordpress-client";
 import { MarkdownConverter } from "./markdown-converter";
 import { parseFrontmatter, updateFrontmatter, getTitle } from "./frontmatter";
@@ -42,7 +42,7 @@ export class Publisher {
 		return file.extension === "md" && file.path.startsWith(normalizedFolder);
 	}
 
-	async publish(file: TFile): Promise<PublishResult> {
+	async publish(file: TFile, overrideStatus?: PostStatus): Promise<PublishResult> {
 		const settings = this.getSettings();
 
 		if (!settings.siteUrl || !settings.username || !settings.applicationPassword) {
@@ -70,7 +70,7 @@ export class Publisher {
 
 			this.markdownConverter.setImageMap(imageMap);
 			const gutenbergContent = this.markdownConverter.convert(content);
-			const status = frontmatter.status || settings.defaultPostStatus;
+			const status: PostStatus = overrideStatus ?? frontmatter.status ?? settings.defaultPostStatus;
 
 			const payload: WordPressPostPayload = {
 				title: getTitle(frontmatter, file.basename),
@@ -99,18 +99,21 @@ export class Publisher {
 			let post;
 			if (frontmatter.wp_post_id) {
 				post = await this.wordpressClient.updatePost(frontmatter.wp_post_id, payload);
-				new Notice(`Updated post: ${post.title.rendered}`);
-				
+
 				const updatedContent = updateFrontmatter(content, {
 					wp_post_url: post.link,
+					status: post.status,
 				});
 				await this.app.vault.modify(file, updatedContent);
+
+				new Notice(`Updated post: ${post.title.rendered}`);
 			} else {
 				post = await this.wordpressClient.createPost(payload);
 				
 				const updatedContent = updateFrontmatter(content, {
 					wp_post_id: post.id,
 					wp_post_url: post.link,
+					status: post.status,
 				});
 				await this.app.vault.modify(file, updatedContent);
 				

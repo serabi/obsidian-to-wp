@@ -1,7 +1,3 @@
-/**
- * Main publishing logic - orchestrates conversion and WordPress API calls
- */
-
 import { App, TFile, Notice, normalizePath } from "obsidian";
 import type { PluginSettings, PublishResult, UploadedImage, WordPressPostPayload } from "./types";
 import { WordPressClient } from "./wordpress-client";
@@ -18,9 +14,6 @@ const MIME_TYPES: Record<string, string> = {
 	".svg": "image/svg+xml",
 };
 
-/**
- * Publisher class handles the full publishing workflow
- */
 export class Publisher {
 	private app: App;
 	private getSettings: () => PluginSettings;
@@ -38,29 +31,20 @@ export class Publisher {
 		this.markdownConverter = new MarkdownConverter();
 	}
 
-	/**
-	 * Check if a file is within the publishable folder scope
-	 */
 	isPublishable(file: TFile): boolean {
 		const settings = this.getSettings();
 		
-		// If no folder is configured, all markdown files are publishable
 		if (!settings.publishableFolder) {
 			return file.extension === "md";
 		}
 
-		// Check if file is within the configured folder
 		const normalizedFolder = normalizePath(settings.publishableFolder);
 		return file.extension === "md" && file.path.startsWith(normalizedFolder);
 	}
 
-	/**
-	 * Publish a note to WordPress
-	 */
 	async publish(file: TFile): Promise<PublishResult> {
 		const settings = this.getSettings();
 
-		// Validate settings
 		if (!settings.siteUrl || !settings.username || !settings.applicationPassword) {
 			return {
 				success: false,
@@ -68,7 +52,6 @@ export class Publisher {
 			};
 		}
 
-		// Check if file is publishable
 		if (!this.isPublishable(file)) {
 			return {
 				success: false,
@@ -77,35 +60,24 @@ export class Publisher {
 		}
 
 		try {
-			// Read file content
 			const content = await this.app.vault.read(file);
-
-			// Parse frontmatter
 			const frontmatter = parseFrontmatter(content);
 
-			// Upload images if enabled
 			const imageMap = new Map<string, UploadedImage>();
 			if (settings.uploadImages) {
 				await this.uploadImages(file, content, imageMap);
 			}
 
-			// Set up converter with image mapping
 			this.markdownConverter.setImageMap(imageMap);
-
-			// Convert markdown to Gutenberg blocks
 			const gutenbergContent = this.markdownConverter.convert(content);
-
-			// Determine post status
 			const status = frontmatter.status || settings.defaultPostStatus;
 
-			// Build post payload
 			const payload: WordPressPostPayload = {
 				title: getTitle(frontmatter, file.basename),
 				content: gutenbergContent,
 				status,
 			};
 
-			// Add optional fields
 			if (frontmatter.slug) {
 				payload.slug = frontmatter.slug;
 			}
@@ -116,7 +88,6 @@ export class Publisher {
 				payload.date = frontmatter.date;
 			}
 
-			// Resolve categories and tags
 			if (frontmatter.categories && frontmatter.categories.length > 0) {
 				const categoryNames = frontmatter.categories.map((c) => String(c));
 				payload.categories = await this.wordpressClient.resolveCategoryIds(categoryNames);
@@ -125,19 +96,21 @@ export class Publisher {
 				payload.tags = await this.wordpressClient.resolveTagIds(frontmatter.tags);
 			}
 
-			// Create or update post
 			let post;
 			if (frontmatter.wp_post_id) {
-				// Update existing post
 				post = await this.wordpressClient.updatePost(frontmatter.wp_post_id, payload);
 				new Notice(`Updated post: ${post.title.rendered}`);
+				
+				const updatedContent = updateFrontmatter(content, {
+					wp_post_url: post.link,
+				});
+				await this.app.vault.modify(file, updatedContent);
 			} else {
-				// Create new post
 				post = await this.wordpressClient.createPost(payload);
 				
-				// Update frontmatter with post ID
 				const updatedContent = updateFrontmatter(content, {
 					wp_post_id: post.id,
+					wp_post_url: post.link,
 				});
 				await this.app.vault.modify(file, updatedContent);
 				
@@ -159,9 +132,6 @@ export class Publisher {
 		}
 	}
 
-	/**
-	 * Upload images referenced in the markdown to WordPress
-	 */
 	private async uploadImages(
 		file: TFile,
 		content: string,
@@ -171,7 +141,6 @@ export class Publisher {
 
 		for (const ref of imageRefs) {
 			try {
-				// Skip external URLs
 				if (ref.path.startsWith("http://") || ref.path.startsWith("https://")) {
 					continue;
 				}
@@ -185,7 +154,6 @@ export class Publisher {
 					continue;
 				}
 
-				// Get file extension and MIME type
 				const ext = imageFile.extension.toLowerCase();
 				const mimeType = MIME_TYPES[`.${ext}`];
 				if (!mimeType) {
@@ -193,7 +161,6 @@ export class Publisher {
 					continue;
 				}
 
-				// Read and upload the image
 				const data = await this.app.vault.readBinary(imageFile);
 				const media = await this.wordpressClient.uploadMedia(
 					imageFile.name,
@@ -201,7 +168,6 @@ export class Publisher {
 					mimeType
 				);
 
-				// Store mapping
 				imageMap.set(ref.path, {
 					localPath: ref.path,
 					wordpressUrl: media.source_url,
@@ -213,16 +179,11 @@ export class Publisher {
 		}
 	}
 
-	/**
-	 * Resolve an image path relative to the current note
-	 */
 	private resolveImagePath(file: TFile, imagePath: string): string {
-		// If it's an absolute vault path, use it directly
 		if (imagePath.startsWith("/")) {
 			return normalizePath(imagePath.substring(1));
 		}
 
-		// Try to find the file using Obsidian's link resolution
 		const linkedFile = this.app.metadataCache.getFirstLinkpathDest(
 			imagePath,
 			file.path
@@ -232,9 +193,9 @@ export class Publisher {
 			return linkedFile.path;
 		}
 
-		// Fall back to resolving relative to the note's folder
 		const noteFolder = file.parent?.path || "";
 		return normalizePath(`${noteFolder}/${imagePath}`);
 	}
 }
+
 

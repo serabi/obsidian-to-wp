@@ -1,15 +1,8 @@
-/**
- * Frontmatter parsing and validation for WordPress post properties
- */
-
+import * as yaml from "js-yaml";
 import type { PostFrontmatter, PostStatus } from "./types";
 
-/** Valid post status values */
 const VALID_STATUSES: PostStatus[] = ["draft", "publish", "private", "future"];
 
-/**
- * Parse YAML frontmatter from markdown content
- */
 export function parseFrontmatter(content: string): PostFrontmatter {
 	const frontmatterMatch = content.match(/^---\n([\s\S]*?)\n---/);
 	
@@ -17,129 +10,68 @@ export function parseFrontmatter(content: string): PostFrontmatter {
 		return {};
 	}
 
-	const yaml = frontmatterMatch[1];
-	const result: PostFrontmatter = {};
-
-	// Parse each line of the YAML
-	const lines = yaml.split("\n");
-	let currentKey = "";
-	let inArray = false;
-	let arrayValues: string[] = [];
-
-	for (const line of lines) {
-		// Skip empty lines
-		if (!line.trim()) continue;
-
-		// Check for array item (starts with -)
-		if (line.match(/^\s+-\s+/)) {
-			if (inArray && currentKey) {
-				const value = line.replace(/^\s+-\s+/, "").trim();
-				// Remove quotes if present
-				arrayValues.push(value.replace(/^["']|["']$/g, ""));
-			}
-			continue;
+	const yamlContent = frontmatterMatch[1];
+	
+	try {
+		const parsed = yaml.load(yamlContent) as any;
+		
+		if (!parsed || typeof parsed !== "object") {
+			return {};
 		}
 
-		// Save previous array if we were in one
-		if (inArray && currentKey && arrayValues.length > 0) {
-			setArrayValue(result, currentKey, arrayValues);
-			arrayValues = [];
-			inArray = false;
+		const result: PostFrontmatter = {};
+
+		if (parsed.title !== undefined) {
+			result.title = String(parsed.title);
 		}
-
-		// Parse key: value pairs
-		const kvMatch = line.match(/^(\w+):\s*(.*)$/);
-		if (kvMatch) {
-			const key = kvMatch[1].toLowerCase();
-			const value = kvMatch[2].trim();
-
-			currentKey = key;
-
-			// Check if this starts an array (empty value or bracket notation)
-			if (value === "" || value === "[]") {
-				inArray = true;
-				arrayValues = [];
-				continue;
-			}
-
-			// Check for inline array [item1, item2]
-			const inlineArrayMatch = value.match(/^\[(.*)\]$/);
-			if (inlineArrayMatch) {
-				const items = inlineArrayMatch[1]
-					.split(",")
-					.map((item) => item.trim().replace(/^["']|["']$/g, ""))
-					.filter((item) => item !== "");
-				setArrayValue(result, key, items);
-				continue;
-			}
-
-			// Single value - remove quotes if present
-			const cleanValue = value.replace(/^["']|["']$/g, "");
-			setSingleValue(result, key, cleanValue);
+		if (parsed.slug !== undefined) {
+			result.slug = String(parsed.slug);
 		}
-	}
-
-	// Don't forget the last array if we were in one
-	if (inArray && currentKey && arrayValues.length > 0) {
-		setArrayValue(result, currentKey, arrayValues);
-	}
-
-	return result;
-}
-
-/** Set a single value on the frontmatter object */
-function setSingleValue(result: PostFrontmatter, key: string, value: string): void {
-	switch (key) {
-		case "title":
-			result.title = value;
-			break;
-		case "slug":
-			result.slug = value;
-			break;
-		case "status":
-			if (VALID_STATUSES.includes(value as PostStatus)) {
-				result.status = value as PostStatus;
+		if (parsed.status !== undefined) {
+			const status = String(parsed.status);
+			if (VALID_STATUSES.includes(status as PostStatus)) {
+				result.status = status as PostStatus;
 			}
-			break;
-		case "excerpt":
-			result.excerpt = value;
-			break;
-		case "date":
-			result.date = value;
-			break;
-		case "wp_post_id": {
-			const id = parseInt(value, 10);
+		}
+		if (parsed.excerpt !== undefined) {
+			result.excerpt = String(parsed.excerpt);
+		}
+		if (parsed.date !== undefined) {
+			result.date = String(parsed.date);
+		}
+		if (parsed.wp_post_id !== undefined) {
+			const id = typeof parsed.wp_post_id === "number" 
+				? parsed.wp_post_id 
+				: parseInt(String(parsed.wp_post_id), 10);
 			if (!isNaN(id)) {
 				result.wp_post_id = id;
 			}
-			break;
 		}
-		case "categories":
-			// Single category as string
-			result.categories = [value];
-			break;
-		case "tags":
-			// Single tag as string
-			result.tags = [value];
-			break;
+		if (parsed.wp_post_url !== undefined) {
+			result.wp_post_url = String(parsed.wp_post_url);
+		}
+		if (parsed.categories !== undefined) {
+			if (Array.isArray(parsed.categories)) {
+				result.categories = parsed.categories.map((c: any) => String(c));
+			} else if (typeof parsed.categories === "string" || typeof parsed.categories === "number") {
+				result.categories = [String(parsed.categories)];
+			}
+		}
+		if (parsed.tags !== undefined) {
+			if (Array.isArray(parsed.tags)) {
+				result.tags = parsed.tags.map((t: any) => String(t));
+			} else if (typeof parsed.tags === "string") {
+				result.tags = [parsed.tags];
+			}
+		}
+
+		return result;
+	} catch (error) {
+		console.warn("Failed to parse frontmatter:", error);
+		return {};
 	}
 }
 
-/** Set an array value on the frontmatter object */
-function setArrayValue(result: PostFrontmatter, key: string, values: string[]): void {
-	switch (key) {
-		case "categories":
-			result.categories = values;
-			break;
-		case "tags":
-			result.tags = values;
-			break;
-	}
-}
-
-/**
- * Update frontmatter in markdown content with new values
- */
 export function updateFrontmatter(
 	content: string,
 	updates: Partial<PostFrontmatter>
@@ -147,12 +79,10 @@ export function updateFrontmatter(
 	const hasFrontmatter = content.match(/^---\n[\s\S]*?\n---/);
 
 	if (!hasFrontmatter) {
-		// Create new frontmatter
 		const yaml = generateYaml(updates);
 		return `---\n${yaml}---\n\n${content}`;
 	}
 
-	// Parse existing and merge
 	const existing = parseFrontmatter(content);
 	const merged = { ...existing, ...updates };
 	const yaml = generateYaml(merged);
@@ -160,57 +90,54 @@ export function updateFrontmatter(
 	return content.replace(/^---\n[\s\S]*?\n---/, `---\n${yaml}---`);
 }
 
-/** Generate YAML string from frontmatter object */
 function generateYaml(frontmatter: PostFrontmatter): string {
-	const lines: string[] = [];
+	const yamlObj: any = {};
 
 	if (frontmatter.title !== undefined) {
-		lines.push(`title: "${escapeYamlString(frontmatter.title)}"`);
+		yamlObj.title = frontmatter.title;
 	}
 	if (frontmatter.slug !== undefined) {
-		lines.push(`slug: ${frontmatter.slug}`);
+		yamlObj.slug = frontmatter.slug;
 	}
 	if (frontmatter.status !== undefined) {
-		lines.push(`status: ${frontmatter.status}`);
+		yamlObj.status = frontmatter.status;
 	}
 	if (frontmatter.excerpt !== undefined) {
-		lines.push(`excerpt: "${escapeYamlString(frontmatter.excerpt)}"`);
+		yamlObj.excerpt = frontmatter.excerpt;
 	}
 	if (frontmatter.date !== undefined) {
-		lines.push(`date: ${frontmatter.date}`);
+		yamlObj.date = frontmatter.date;
 	}
 	if (frontmatter.wp_post_id !== undefined) {
-		lines.push(`wp_post_id: ${frontmatter.wp_post_id}`);
+		yamlObj.wp_post_id = frontmatter.wp_post_id;
+	}
+	if (frontmatter.wp_post_url !== undefined) {
+		yamlObj.wp_post_url = frontmatter.wp_post_url;
 	}
 	if (frontmatter.categories && frontmatter.categories.length > 0) {
-		lines.push("categories:");
-		for (const cat of frontmatter.categories) {
-			lines.push(`  - ${cat}`);
-		}
+		yamlObj.categories = frontmatter.categories;
 	}
 	if (frontmatter.tags && frontmatter.tags.length > 0) {
-		lines.push("tags:");
-		for (const tag of frontmatter.tags) {
-			lines.push(`  - ${tag}`);
-		}
+		yamlObj.tags = frontmatter.tags;
 	}
 
-	return lines.length > 0 ? lines.join("\n") + "\n" : "";
+	try {
+		return yaml.dump(yamlObj, {
+			lineWidth: -1,
+			noRefs: true,
+			sortKeys: false,
+		});
+	} catch (error) {
+		console.warn("Failed to generate YAML:", error);
+		return "";
+	}
 }
 
-/** Escape special characters in YAML strings */
-function escapeYamlString(str: string): string {
-	return str.replace(/"/g, '\\"');
-}
-
-/**
- * Get the title from frontmatter or filename
- */
 export function getTitle(frontmatter: PostFrontmatter, filename: string): string {
 	if (frontmatter.title) {
 		return frontmatter.title;
 	}
-	// Remove .md extension and return
 	return filename.replace(/\.md$/, "");
 }
+
 

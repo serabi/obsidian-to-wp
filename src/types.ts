@@ -19,6 +19,8 @@ export interface PluginSettings {
 	defaultPostStatus: PostStatus;
 	/** Whether to upload images to WordPress media library */
 	uploadImages: boolean;
+	/** Whether to create a template file in the publishable folder */
+	createTemplate: boolean;
 }
 
 /** Frontmatter fields that map to WordPress post properties */
@@ -39,6 +41,8 @@ export interface PostFrontmatter {
 	date?: string;
 	/** WordPress post ID (set after first publish for updates) */
 	wp_post_id?: number;
+	/** WordPress post URL (set after publishing) */
+	wp_post_url?: string;
 }
 
 /** WordPress REST API post creation/update payload */
@@ -128,4 +132,5 @@ export interface CalloutInfo {
 	foldable: boolean;
 	defaultFolded: boolean;
 }
+
 

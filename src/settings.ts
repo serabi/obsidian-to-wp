@@ -40,7 +40,6 @@ export class SettingsTab extends PluginSettingTab {
 					.setPlaceholder("https://example.com")
 					.setValue(this.plugin.settings.siteUrl)
 					.onChange(async (value) => {
-						// Normalize URL: remove trailing slash
 						this.plugin.settings.siteUrl = value.replace(/\/+$/, "");
 						await this.plugin.saveSettings();
 					})
@@ -100,7 +99,6 @@ export class SettingsTab extends PluginSettingTab {
 
 		containerEl.createEl("h2", { text: "Publishing options" });
 
-		// Folder selection with picker and confirm button
 		const folderSetting = new Setting(containerEl)
 			.setName("Publishable folder")
 			.setDesc(
@@ -127,7 +125,6 @@ export class SettingsTab extends PluginSettingTab {
 			cls: "mod-cta",
 		});
 
-		// Update confirm button state - always enabled (can clear folder to allow all notes)
 		const updateConfirmButton = () => {
 			const currentValue = folderInput.value.trim();
 			const isChanged = currentValue !== this.plugin.settings.publishableFolder;
@@ -137,7 +134,6 @@ export class SettingsTab extends PluginSettingTab {
 		updateConfirmButton();
 		folderInput.addEventListener("input", updateConfirmButton);
 
-		// Folder picker button
 		pickerButton.addEventListener("click", () => {
 			new FolderPickerModal(this.app, (folderPath: string) => {
 				folderInput.value = folderPath;
@@ -145,18 +141,14 @@ export class SettingsTab extends PluginSettingTab {
 			}).open();
 		});
 
-		// Confirm button - creates folder if needed
 		confirmButton.addEventListener("click", async () => {
 			const folderPath = folderInput.value.trim();
 			const normalizedPath = folderPath ? normalizePath(folderPath) : "";
 
-			// If folder path is provided, create it if it doesn't exist
 			if (normalizedPath) {
-				// Check if folder exists
 				const folder = this.app.vault.getAbstractFileByPath(normalizedPath);
 				
 				if (!folder) {
-					// Create folder
 					try {
 						await this.app.vault.createFolder(normalizedPath);
 						new Notice(`Created folder: ${normalizedPath}`);
@@ -169,13 +161,11 @@ export class SettingsTab extends PluginSettingTab {
 					return;
 				}
 
-				// Create template if enabled
 				if (this.plugin.settings.createTemplate) {
 					await this.createTemplateFile(normalizedPath);
 				}
 			}
 
-			// Save setting (can be empty to allow all notes)
 			this.plugin.settings.publishableFolder = normalizedPath;
 			await this.plugin.saveSettings();
 
@@ -188,7 +178,6 @@ export class SettingsTab extends PluginSettingTab {
 			updateConfirmButton();
 		});
 
-		// Template creation toggle
 		new Setting(containerEl)
 			.setName("Create template file")
 			.setDesc("Create a template file in the publishable folder that you can copy for new posts")
@@ -196,11 +185,10 @@ export class SettingsTab extends PluginSettingTab {
 				toggle
 					.setValue(this.plugin.settings.createTemplate)
 					.onChange(async (value) => {
-						this.plugin.settings.createTemplate = value;
-						await this.plugin.saveSettings();
-						
-						// Create template if enabled and folder is set
-						if (value && this.plugin.settings.publishableFolder) {
+					this.plugin.settings.createTemplate = value;
+					await this.plugin.saveSettings();
+					
+					if (value && this.plugin.settings.publishableFolder) {
 							await this.createTemplateFile(this.plugin.settings.publishableFolder);
 						}
 					})
@@ -249,6 +237,7 @@ export class SettingsTab extends PluginSettingTab {
 				<li><code>excerpt</code> - Post excerpt/summary</li>
 				<li><code>date</code> - Scheduled publish date (ISO 8601, e.g., 2024-12-25T10:00:00)</li>
 				<li><code>wp_post_id</code> - WordPress post ID (auto-set after first publish)</li>
+				<li><code>wp_post_url</code> - WordPress post URL (auto-set after publishing)</li>
 			</ul>
 			<p>Example:</p>
 			<pre>---
@@ -267,16 +256,11 @@ date: 2024-12-25T10:00:00
 		`;
 	}
 
-	/**
-	 * Create a template file in the specified folder
-	 */
 	private async createTemplateFile(folderPath: string): Promise<void> {
 		const templatePath = normalizePath(`${folderPath}/Template.md`);
 		
-		// Check if template already exists
 		const existingFile = this.app.vault.getAbstractFileByPath(templatePath);
 		if (existingFile) {
-			// Don't overwrite existing template
 			return;
 		}
 
@@ -311,9 +295,6 @@ Your content goes here.
 	}
 }
 
-/**
- * Modal for selecting a folder
- */
 class FolderPickerModal extends Modal {
 	private onSelect: (folderPath: string) => void;
 
@@ -336,7 +317,6 @@ class FolderPickerModal extends Modal {
 		inputEl.style.width = "100%";
 		inputEl.style.marginBottom = "1em";
 
-		// Get all folders in vault
 		const folders: TFolder[] = [];
 		this.app.vault.getAllLoadedFiles().forEach((fileOrFolder) => {
 			if (fileOrFolder instanceof TFolder) {
@@ -344,7 +324,6 @@ class FolderPickerModal extends Modal {
 			}
 		});
 
-		// Create folder list
 		const folderList = contentEl.createEl("div", { cls: "folder-list" });
 		folderList.style.maxHeight = "300px";
 		folderList.style.overflowY = "auto";
@@ -411,7 +390,6 @@ class FolderPickerModal extends Modal {
 
 		selectButton.addEventListener("click", () => {
 			const path = inputEl.value.trim();
-			// Allow empty path to clear folder setting
 			this.onSelect(path);
 			this.close();
 		});
@@ -420,7 +398,6 @@ class FolderPickerModal extends Modal {
 			this.close();
 		});
 
-		// Allow Enter key to select
 		inputEl.addEventListener("keydown", (e) => {
 			if (e.key === "Enter") {
 				selectButton.click();

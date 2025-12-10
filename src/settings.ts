@@ -154,10 +154,12 @@ export class SettingsTab extends PluginSettingTab {
 						new Notice(`Created folder: ${normalizedPath}`);
 					} catch (error) {
 						new Notice(`Failed to create folder: ${error instanceof Error ? error.message : "Unknown error"}`);
+						updateConfirmButton();
 						return;
 					}
 				} else if (!(folder instanceof TFolder)) {
 					new Notice(`Path exists but is not a folder: ${normalizedPath}`);
+					updateConfirmButton();
 					return;
 				}
 

@@ -78,8 +78,8 @@ export class Publisher {
 				status,
 			};
 
-			if (frontmatter.slug) {
-				payload.slug = frontmatter.slug;
+			if (frontmatter.slug && frontmatter.slug.trim().length > 0) {
+				payload.slug = frontmatter.slug.trim();
 			}
 			if (frontmatter.excerpt) {
 				payload.excerpt = frontmatter.excerpt;

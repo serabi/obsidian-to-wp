@@ -3,6 +3,27 @@ import type { PostFrontmatter, PostStatus } from "./types";
 
 const VALID_STATUSES: PostStatus[] = ["draft", "publish", "private", "future"];
 
+function toNonEmptyString(value: unknown): string | undefined {
+	if (value === null || value === undefined) {
+		return undefined;
+	}
+
+	const str = String(value).trim();
+	return str.length > 0 ? str : undefined;
+}
+
+function normalizeStringList(value: unknown): string[] | undefined {
+	if (Array.isArray(value)) {
+		const cleaned = value
+			.map((item) => toNonEmptyString(item))
+			.filter((item): item is string => Boolean(item));
+		return cleaned.length > 0 ? cleaned : undefined;
+	}
+
+	const single = toNonEmptyString(value);
+	return single ? [single] : undefined;
+}
+
 export function parseFrontmatter(content: string): PostFrontmatter {
 	const frontmatterMatch = content.match(/^---\n([\s\S]*?)\n---/);
 	
@@ -26,8 +47,9 @@ export function parseFrontmatter(content: string): PostFrontmatter {
 		if (parsedFrontmatter.title !== undefined) {
 			result.title = String(parsedFrontmatter.title);
 		}
-		if (parsedFrontmatter.slug !== undefined) {
-			result.slug = String(parsedFrontmatter.slug);
+		const slug = toNonEmptyString(parsedFrontmatter.slug);
+		if (slug) {
+			result.slug = slug;
 		}
 		if (parsedFrontmatter.status !== undefined) {
 			const status = String(parsedFrontmatter.status);
@@ -52,19 +74,13 @@ export function parseFrontmatter(content: string): PostFrontmatter {
 		if (parsedFrontmatter.wp_post_url !== undefined) {
 			result.wp_post_url = String(parsedFrontmatter.wp_post_url);
 		}
-		if (parsedFrontmatter.categories !== undefined) {
-			if (Array.isArray(parsedFrontmatter.categories)) {
-				result.categories = parsedFrontmatter.categories.map((c) => String(c));
-			} else if (typeof parsedFrontmatter.categories === "string" || typeof parsedFrontmatter.categories === "number") {
-				result.categories = [String(parsedFrontmatter.categories)];
-			}
+		const categories = normalizeStringList(parsedFrontmatter.categories);
+		if (categories) {
+			result.categories = categories;
 		}
-		if (parsedFrontmatter.tags !== undefined) {
-			if (Array.isArray(parsedFrontmatter.tags)) {
-				result.tags = parsedFrontmatter.tags.map((t) => String(t));
-			} else if (typeof parsedFrontmatter.tags === "string" || typeof parsedFrontmatter.tags === "number") {
-				result.tags = [String(parsedFrontmatter.tags)];
-			}
+		const tags = normalizeStringList(parsedFrontmatter.tags);
+		if (tags) {
+			result.tags = tags;
 		}
 
 		return result;

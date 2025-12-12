@@ -99,86 +99,65 @@ export class SettingsTab extends PluginSettingTab {
 
 		containerEl.createEl("h2", { text: "Publishing options" });
 
-		const folderSetting = new Setting(containerEl)
+		new Setting(containerEl)
 			.setName("Publishable folder")
 			.setDesc(
 				"Only notes in this folder (and subfolders) can be published. Leave empty to allow all notes."
-			);
+			)
+			.addText((text) => {
+				text
+					.setPlaceholder("Blog/Posts")
+					.setValue(this.plugin.settings.publishableFolder)
+					.onChange(async (value) => {
+						// Just update the input, don't save yet
+					});
+				text.inputEl.style.width = "200px";
+			})
+			.addButton((button) =>
+				button.setButtonText("Browse").onClick(() => {
+					new FolderPickerModal(this.app, async (folderPath: string) => {
+						this.plugin.settings.publishableFolder = folderPath;
+						await this.plugin.saveSettings();
+						this.display(); // Refresh to show updated value
+					}).open();
+				})
+			)
+			.addButton((button) =>
+				button.setButtonText("Save").onClick(async () => {
+					const input = containerEl.querySelector(
+						'.setting-item:has([placeholder="Blog/Posts"]) input'
+					) as HTMLInputElement;
+					if (input) {
+						const folderPath = normalizePath(input.value.trim());
 
-		const folderText = folderSetting.controlEl.createEl("div", { cls: "folder-selector" });
-		const folderInput = folderText.createEl("input", {
-			type: "text",
-			cls: "folder-input",
-			attr: { placeholder: "Blog/Posts" },
-		});
-		folderInput.value = this.plugin.settings.publishableFolder;
+						if (folderPath) {
+							const folder = this.app.vault.getAbstractFileByPath(folderPath);
+							if (!folder) {
+								const shouldCreate = confirm(`Folder "${folderPath}" doesn't exist. Create it?`);
+								if (shouldCreate) {
+									try {
+										await this.app.vault.createFolder(folderPath);
+										new Notice(`Created folder: ${folderPath}`);
+									} catch (error) {
+										new Notice(`Failed to create folder: ${error instanceof Error ? error.message : "Unknown error"}`);
+										return;
+									}
+								} else {
+									return;
+								}
+							}
+						}
 
-		const folderButtons = folderText.createEl("div", { cls: "folder-buttons" });
-		
-		const pickerButton = folderButtons.createEl("button", {
-			text: "Choose folder",
-			cls: "mod-cta",
-		});
+						this.plugin.settings.publishableFolder = folderPath;
+						await this.plugin.saveSettings();
+						new Notice(folderPath ? `Folder set: ${folderPath}` : "Folder cleared");
 
-		const confirmButton = folderButtons.createEl("button", {
-			text: "Confirm",
-			cls: "mod-cta",
-		});
-
-		const updateConfirmButton = () => {
-			const currentValue = folderInput.value.trim();
-			const isChanged = currentValue !== this.plugin.settings.publishableFolder;
-			confirmButton.disabled = !isChanged;
-		};
-		
-		updateConfirmButton();
-		folderInput.addEventListener("input", updateConfirmButton);
-
-		pickerButton.addEventListener("click", () => {
-			new FolderPickerModal(this.app, (folderPath: string) => {
-				folderInput.value = folderPath;
-				updateConfirmButton();
-			}).open();
-		});
-
-		confirmButton.addEventListener("click", async () => {
-			const folderPath = folderInput.value.trim();
-			const normalizedPath = folderPath ? normalizePath(folderPath) : "";
-
-			if (normalizedPath) {
-				const folder = this.app.vault.getAbstractFileByPath(normalizedPath);
-				
-				if (!folder) {
-					try {
-						await this.app.vault.createFolder(normalizedPath);
-						new Notice(`Created folder: ${normalizedPath}`);
-					} catch (error) {
-						new Notice(`Failed to create folder: ${error instanceof Error ? error.message : "Unknown error"}`);
-						confirmButton.disabled = false;
-						return;
+						if (folderPath && this.plugin.settings.createTemplate) {
+							await this.createTemplateFile(folderPath);
+						}
 					}
-				} else if (!(folder instanceof TFolder)) {
-					new Notice(`Path exists but is not a folder: ${normalizedPath}`);
-					confirmButton.disabled = false;
-					return;
-				}
-
-				if (this.plugin.settings.createTemplate) {
-					await this.createTemplateFile(normalizedPath);
-				}
-			}
-
-			this.plugin.settings.publishableFolder = normalizedPath;
-			await this.plugin.saveSettings();
-
-			if (normalizedPath) {
-				new Notice(`Folder confirmed: ${normalizedPath}`);
-			} else {
-				new Notice("Folder cleared - all notes can be published");
-			}
-			
-			updateConfirmButton();
-		});
+				})
+			);
 
 		new Setting(containerEl)
 			.setName("Create template file")
@@ -237,7 +216,7 @@ export class SettingsTab extends PluginSettingTab {
 				<li><code>categories</code> - List of category names</li>
 				<li><code>tags</code> - List of tag names</li>
 				<li><code>excerpt</code> - Post excerpt/summary</li>
-				<li><code>date</code> - Scheduled publish date (ISO 8601, e.g., 2024-12-25T10:00:00)</li>
+				<li><code>date</code> - Scheduled publish date (ISO 8601, e.g., YYYY-MM-DDTHH:MM:SS)</li>
 				<li><code>wp_post_id</code> - WordPress post ID (auto-set after first publish)</li>
 				<li><code>wp_post_url</code> - WordPress post URL (auto-set after publishing)</li>
 			</ul>
@@ -253,7 +232,6 @@ tags:
   - obsidian
   - wordpress
 excerpt: A short summary of my post
-date: 2024-12-25T10:00:00
 ---</pre>
 		`;
 	}
@@ -276,7 +254,6 @@ tags:
   - tag1
   - tag2
 excerpt: A brief summary of your post
-date: 2024-12-25T10:00:00
 ---
 
 # Your Post Title

@@ -1,8 +1,8 @@
-# Obsidian -> WordPress: An Obsidian Publishing Plugin for WordPress
+# Obsidian-to-WordPress: An Obsidian -> WordPress Publishing Plugin for WordPress
 
-Publish your Obsidian notes directly to WordPress as Gutenberg block-formatted posts. This plugin converts Obsidian-flavored markdown (including callouts, wikilinks, and standard formatting) into WordPress block markup, handles image uploads to your WordPress media library, and authenticates securely using Application Passwords.
+Publish your Obsidian notes directly to WordPress as Gutenberg block-formatted posts. This plugin converts Obsidian-flavored markdown (including callouts, wikilinks, and standard formatting) into WordPress block markup, handles image uploads to your WordPress media library, and authenticates securely using Application Passwords. Please note that this plugin is still under active development. Share any bugs you find via the Issues tab. 
 
-## Features
+## Currently Included Features
 
 - **One-click publishing** - Publish notes via command palette or right-click context menu
 - **Gutenberg block output** - Converts markdown to native WordPress block format
@@ -10,7 +10,7 @@ Publish your Obsidian notes directly to WordPress as Gutenberg block-formatted p
 - **Folder scoping** - Restrict publishing to notes in a specific folder
 - **Frontmatter control** - Set post properties like title, slug, categories, tags, excerpt, and scheduled date
 - **Post status control** - Publish as draft, published, private, or scheduled (per-post or default setting)
-- **Update support** - Re-publish notes to update existing WordPress posts
+- **Update support** - Re-publish notes to update existing WordPress posts (_NOTE: still needs more testing! use with caution._)
 
 ## Installation
 
@@ -35,7 +35,7 @@ BRAT will automatically check for updates and keep your plugin current.
 
 ### WordPress Configuration
 
-1. Ensure your WordPress site has the REST API enabled (enabled by default in WordPress 4.7+)
+1. Ensure your WordPress site has the REST API enabled (yes, you can do this on WordPress.com!) 
 2. Create an Application Password:
    - Go to **Users > Profile** in WordPress admin
    - Scroll to **Application Passwords**
@@ -135,12 +135,10 @@ The plugin converts the following Obsidian markdown elements to Gutenberg blocks
 
 ### Planned Features
 
-- **Two-way sync** - Pull WordPress posts back into Obsidian
 - Featured image support
 - Custom post type support
-- Bulk publishing
-- Publishing status indicators in file explorer
 - Conflict detection and resolution
+- Other ideas? Please share under Issues :) 
 
 ## Troubleshooting
 
@@ -185,3 +183,7 @@ If you find this plugin useful, consider:
 - Starring the repository on GitHub
 - Reporting bugs or suggesting features via GitHub Issues
 - Contributing code improvements via Pull Requests
+
+---
+
+Made with <3 for the WordPress and Obsidian communities 

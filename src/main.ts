@@ -13,7 +13,7 @@ export default class SyncForWordPress extends Plugin {
 	async onload(): Promise<void> {
 		await this.loadSettings();
 
-		this.wordpressClient = new WordPressClient(() => this.settings);
+		this.wordpressClient = new WordPressClient(this.app, () => this.settings);
 		this.publisher = new Publisher(
 			this.app,
 			() => this.settings,

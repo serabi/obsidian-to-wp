@@ -1,4 +1,4 @@
-import { requestUrl, RequestUrlParam, RequestUrlResponse } from "obsidian";
+import { App, requestUrl, RequestUrlParam, RequestUrlResponse } from "obsidian";
 import type {
 	PluginSettings,
 	WordPressPost,
@@ -38,32 +38,29 @@ function toRequestError(response: RequestUrlResponse): WordPressRequestError {
 }
 
 export class WordPressClient {
-	private getSettings: () => PluginSettings;
+	constructor(private app: App, private getSettings: () => PluginSettings) {}
 
-	constructor(getSettings: () => PluginSettings) {
-		this.getSettings = getSettings;
+	private get password(): string | null {
+		const id = this.getSettings().applicationPasswordSecret;
+		return id ? this.app.secretStorage.getSecret(id) : null;
 	}
 
-	private get apiBase(): string {
-		return `${this.getSettings().siteUrl}/wp-json/wp/v2`;
-	}
-
-	private get authHeader(): string {
+	isConfigured(): boolean {
 		const settings = this.getSettings();
-		return `Basic ${btoa(`${settings.username}:${settings.applicationPassword}`)}`;
+		return Boolean(settings.siteUrl && settings.username && this.password);
 	}
 
 	private async request<T>(endpoint: string, options: Partial<RequestUrlParam> = {}): Promise<T> {
-		const settings = this.getSettings();
-		if (!settings.siteUrl || !settings.username || !settings.applicationPassword) {
+		if (!this.isConfigured()) {
 			throw new Error("WordPress connection is not set up. Check the plugin settings.");
 		}
+		const settings = this.getSettings();
 
 		const response = await requestUrl({
-			url: `${this.apiBase}${endpoint}`,
+			url: `${settings.siteUrl}/wp-json/wp/v2${endpoint}`,
 			method: options.method || "GET",
 			headers: {
-				Authorization: this.authHeader,
+				Authorization: `Basic ${btoa(`${settings.username}:${this.password}`)}`,
 				"Content-Type": "application/json",
 				...options.headers,
 			},

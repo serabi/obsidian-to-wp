@@ -2,7 +2,7 @@
  * Plugin settings interface, defaults, and settings tab
  */
 
-import { App, PluginSettingTab, Setting, Notice, normalizePath } from "obsidian";
+import { App, PluginSettingTab, SecretComponent, Setting, Notice, normalizePath } from "obsidian";
 import type SyncForWordPress from "./main";
 import { FolderSuggest } from "./ui/folder-suggest";
 import type { PluginSettings, PostStatus } from "./types";
@@ -11,7 +11,7 @@ import type { PluginSettings, PostStatus } from "./types";
 export const DEFAULT_SETTINGS: PluginSettings = {
 	siteUrl: "",
 	username: "",
-	applicationPassword: "",
+	applicationPasswordSecret: "",
 	publishableFolder: "",
 	defaultPostStatus: "draft",
 	uploadImages: true,
@@ -60,17 +60,16 @@ export class SettingsTab extends PluginSettingTab {
 		new Setting(containerEl)
 			.setName("Application password")
 			.setDesc(
-				"Create one on your WordPress profile page, in the application passwords section."
+				"Create one on your WordPress profile page, in the application passwords section. It is kept in Obsidian's secret storage."
 			)
-			.addText((text) => {
-				text
-					.setValue(this.plugin.settings.applicationPassword)
+			.addComponent((el) =>
+				new SecretComponent(this.app, el)
+					.setValue(this.plugin.settings.applicationPasswordSecret)
 					.onChange(async (value) => {
-						this.plugin.settings.applicationPassword = value;
+						this.plugin.settings.applicationPasswordSecret = value;
 						await this.plugin.saveSettings();
-					});
-				text.inputEl.type = "password";
-			});
+					})
+			);
 
 		new Setting(containerEl)
 			.setName("Test connection")

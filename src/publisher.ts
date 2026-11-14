@@ -44,7 +44,7 @@ export class Publisher {
 	private async publishOnce(file: TFile, overrideStatus?: PostStatus): Promise<PublishResult> {
 		const settings = this.getSettings();
 
-		if (!settings.siteUrl || !settings.username || !settings.applicationPassword) {
+		if (!this.wordpressClient.isConfigured()) {
 			return { success: false, error: "WordPress connection is not set up. Check the plugin settings." };
 		}
 		if (!this.isPublishable(file)) {

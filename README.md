@@ -49,7 +49,7 @@ BRAT will automatically check for updates and keep your plugin current.
 1. Open Obsidian **Settings → Sync for WordPress**
 2. Enter your WordPress site URL (e.g., `https://example.com`)
 3. Enter your WordPress username
-4. Enter the Application Password you created
+4. Under **Application password**, add a new secret and paste the password you created. Obsidian keeps it in its secret storage, not in the plugin settings file
 5. Click **Test** to verify the connection
 6. Optionally configure:
    - **Publishable folder** - Only notes in this folder can be published

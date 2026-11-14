@@ -8,8 +8,8 @@ export interface PluginSettings {
 	siteUrl: string;
 	/** WordPress username */
 	username: string;
-	/** WordPress Application Password */
-	applicationPassword: string;
+	/** ID of the application password in Obsidian's secret storage */
+	applicationPasswordSecret: string;
 	/** Folder path to scope publishable notes (empty = all notes) */
 	publishableFolder: string;
 	/** Default post status when publishing */

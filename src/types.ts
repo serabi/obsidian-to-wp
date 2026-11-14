@@ -18,6 +18,14 @@ export interface PluginSettings {
 	uploadImages: boolean;
 	/** Whether to create a template file in the publishable folder */
 	createTemplate: boolean;
+	/** Uploaded media keyed by site URL and vault path, so unchanged images are not uploaded twice */
+	mediaCache: Record<string, CachedMedia>;
+}
+
+export interface CachedMedia {
+	id: number;
+	url: string;
+	mtime: number;
 }
 
 /** Frontmatter fields that map to WordPress post properties */
@@ -88,6 +96,7 @@ export interface WordPressError {
 	message: string;
 	data?: {
 		status: number;
+		term_id?: number;
 	};
 }
 

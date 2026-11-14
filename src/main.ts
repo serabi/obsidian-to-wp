@@ -1,5 +1,5 @@
 import { Plugin, TFile, Menu, Notice, TAbstractFile, TFolder, normalizePath } from "obsidian";
-import type { PluginSettings } from "./types";
+import type { PluginSettings, PostStatus } from "./types";
 import { DEFAULT_SETTINGS, SettingsTab } from "./settings";
 import { WordPressClient } from "./wordpress-client";
 import { Publisher } from "./publisher";
@@ -17,6 +17,7 @@ export default class SyncForWordPress extends Plugin {
 		this.publisher = new Publisher(
 			this.app,
 			() => this.settings,
+			() => this.saveSettings(),
 			this.wordpressClient
 		);
 
@@ -148,34 +149,17 @@ export default class SyncForWordPress extends Plugin {
 			return;
 		}
 
-		const originalStatus = this.settings.defaultPostStatus;
-		this.settings.defaultPostStatus = "draft";
-		
-		try {
-			await this.publishFile(file);
-		} finally {
-			this.settings.defaultPostStatus = originalStatus;
-		}
+		await this.publishFile(file, "draft");
 	}
 
-	private async publishFile(file: TFile): Promise<void> {
+	private async publishFile(file: TFile, overrideStatus?: PostStatus): Promise<void> {
 		const folderMissing = await this.checkPublishableFolder();
 		if (folderMissing) {
 			return;
 		}
 
-		if (!this.publisher.isPublishable(file)) {
-			new Notice(`Cannot publish: File is not in the publishable folder`);
-			return;
-		}
-
 		new Notice(`Publishing ${file.basename}...`);
-
-		const result = await this.publisher.publish(file);
-
-		if (result.success && result.postUrl) {
-			new Notice(`Published successfully! Post URL: ${result.postUrl}`, 5000);
-		}
+		await this.publisher.publish(file, overrideStatus);
 	}
 
 	private async checkPublishableFolder(): Promise<boolean> {

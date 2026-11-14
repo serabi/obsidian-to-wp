@@ -100,7 +100,7 @@ date: 2024-12-25T10:00:00
 | `categories` | List of category names (created if they don't exist) |
 | `tags` | List of tag names (created if they don't exist) |
 | `excerpt` | Post excerpt/summary |
-| `date` | Scheduled publish date (ISO 8601 format, requires `status: future`) |
+| `date` | Post date (ISO 8601). A future date schedules the post; a past date backdates it |
 | `wp_post_id` | WordPress post ID (auto-set after first publish) |
 
 ### Updating Published Posts

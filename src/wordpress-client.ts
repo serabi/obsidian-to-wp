@@ -1,4 +1,4 @@
-import { requestUrl, RequestUrlParam } from "obsidian";
+import { requestUrl, RequestUrlParam, RequestUrlResponse } from "obsidian";
 import type {
 	PluginSettings,
 	WordPressPost,
@@ -15,6 +15,28 @@ export interface ConnectionTestResult {
 	error?: string;
 }
 
+type Taxonomy = "categories" | "tags";
+
+export class WordPressRequestError extends Error {
+	constructor(message: string, readonly code?: string, readonly data?: WordPressError["data"]) {
+		super(message);
+	}
+}
+
+function decodeEntities(text: string): string {
+	return new DOMParser().parseFromString(text, "text/html").documentElement.textContent ?? text;
+}
+
+function toRequestError(response: RequestUrlResponse): WordPressRequestError {
+	let body: Partial<WordPressError> = {};
+	try {
+		body = response.json as WordPressError;
+	} catch {
+		// Not JSON, such as an HTML error page from a proxy or security plugin.
+	}
+	return new WordPressRequestError(body?.message || `HTTP ${response.status}: Request failed`, body?.code, body?.data);
+}
+
 export class WordPressClient {
 	private getSettings: () => PluginSettings;
 
@@ -23,30 +45,22 @@ export class WordPressClient {
 	}
 
 	private get apiBase(): string {
-		const settings = this.getSettings();
-		return `${settings.siteUrl}/wp-json/wp/v2`;
+		return `${this.getSettings().siteUrl}/wp-json/wp/v2`;
 	}
 
 	private get authHeader(): string {
 		const settings = this.getSettings();
-		const credentials = `${settings.username}:${settings.applicationPassword}`;
-		return `Basic ${btoa(credentials)}`;
+		return `Basic ${btoa(`${settings.username}:${settings.applicationPassword}`)}`;
 	}
 
-	private async request<T>(
-		endpoint: string,
-		options: Partial<RequestUrlParam> = {}
-	): Promise<T> {
+	private async request<T>(endpoint: string, options: Partial<RequestUrlParam> = {}): Promise<T> {
 		const settings = this.getSettings();
-		
 		if (!settings.siteUrl || !settings.username || !settings.applicationPassword) {
-			throw new Error("WordPress connection not configured. Please check plugin settings.");
+			throw new Error("WordPress connection is not set up. Check the plugin settings.");
 		}
 
-		const url = endpoint.startsWith("http") ? endpoint : `${this.apiBase}${endpoint}`;
-
 		const response = await requestUrl({
-			url,
+			url: `${this.apiBase}${endpoint}`,
 			method: options.method || "GET",
 			headers: {
 				Authorization: this.authHeader,
@@ -58,142 +72,76 @@ export class WordPressClient {
 		});
 
 		if (response.status >= 400) {
-			const error = response.json as WordPressError;
-			throw new Error(error?.message || `HTTP ${response.status}: Request failed`);
+			throw toRequestError(response);
 		}
-
 		return response.json as T;
 	}
 
 	async testConnection(): Promise<ConnectionTestResult> {
 		try {
 			const user = await this.request<{ name: string }>("/users/me");
-			return {
-				success: true,
-				username: user.name,
-			};
+			return { success: true, username: user.name };
 		} catch (error) {
-			return {
-				success: false,
-				error: error instanceof Error ? error.message : "Unknown error",
-			};
+			return { success: false, error: error instanceof Error ? error.message : "Unknown error" };
 		}
 	}
 
 	async createPost(payload: WordPressPostPayload): Promise<WordPressPost> {
-		return this.request<WordPressPost>("/posts", {
-			method: "POST",
-			body: JSON.stringify(payload),
-		});
+		return this.request<WordPressPost>("/posts", { method: "POST", body: JSON.stringify(payload) });
 	}
 
 	async updatePost(postId: number, payload: WordPressPostPayload): Promise<WordPressPost> {
-		return this.request<WordPressPost>(`/posts/${postId}`, {
-			method: "PUT",
-			body: JSON.stringify(payload),
-		});
+		return this.request<WordPressPost>(`/posts/${postId}`, { method: "PUT", body: JSON.stringify(payload) });
 	}
 
-	async getPost(postId: number): Promise<WordPressPost | null> {
-		try {
-			return await this.request<WordPressPost>(`/posts/${postId}`);
-		} catch {
-			return null;
-		}
-	}
-
-	async uploadMedia(
-		filename: string,
-		data: ArrayBuffer,
-		mimeType: string
-	): Promise<WordPressMedia> {
-		const url = `${this.apiBase}/media`;
-
-		const response = await requestUrl({
-			url,
+	async uploadMedia(filename: string, data: ArrayBuffer, mimeType: string): Promise<WordPressMedia> {
+		// WordPress reads only the plain filename parameter; filename* is there for standards-aware proxies.
+		const asciiName = filename.replace(/[^\x20-\x7e]|["\\]/g, "_");
+		return this.request<WordPressMedia>("/media", {
 			method: "POST",
 			headers: {
-				Authorization: this.authHeader,
 				"Content-Type": mimeType,
-				"Content-Disposition": `attachment; filename="${encodeURIComponent(filename)}"`,
+				"Content-Disposition": `attachment; filename="${asciiName}"; filename*=UTF-8''${encodeURIComponent(filename)}`,
 			},
 			body: data,
-			throw: false,
 		});
-
-		if (response.status >= 400) {
-			const error = response.json as WordPressError;
-			throw new Error(error?.message || `Failed to upload media: HTTP ${response.status}`);
-		}
-
-		return response.json as WordPressMedia;
 	}
 
-	async getOrCreateCategory(name: string): Promise<number> {
+	private async getOrCreateTerm(taxonomy: Taxonomy, name: string): Promise<number> {
 		const existing = await this.request<WordPressTerm[]>(
-			`/categories?search=${encodeURIComponent(name)}&per_page=100`
+			`/${taxonomy}?search=${encodeURIComponent(name)}&per_page=100`
 		);
-
-		const match = existing.find(
-			(cat) => cat.name.toLowerCase() === name.toLowerCase()
-		);
+		const wanted = name.toLowerCase();
+		const match = existing.find((term) => decodeEntities(term.name).toLowerCase() === wanted);
 		if (match) {
 			return match.id;
 		}
 
-		const created = await this.request<WordPressTerm>("/categories", {
-			method: "POST",
-			body: JSON.stringify({ name }),
-		});
-
-		return created.id;
-	}
-
-	async getOrCreateTag(name: string): Promise<number> {
-		const existing = await this.request<WordPressTerm[]>(
-			`/tags?search=${encodeURIComponent(name)}&per_page=100`
-		);
-
-		const match = existing.find(
-			(tag) => tag.name.toLowerCase() === name.toLowerCase()
-		);
-		if (match) {
-			return match.id;
+		try {
+			const created = await this.request<WordPressTerm>(`/${taxonomy}`, {
+				method: "POST",
+				body: JSON.stringify({ name }),
+			});
+			return created.id;
+		} catch (error) {
+			if (error instanceof WordPressRequestError && error.code === "term_exists" && error.data?.term_id) {
+				return error.data.term_id;
+			}
+			throw error;
 		}
-
-		const created = await this.request<WordPressTerm>("/tags", {
-			method: "POST",
-			body: JSON.stringify({ name }),
-		});
-
-		return created.id;
 	}
 
-	async resolveCategoryIds(names: string[]): Promise<number[]> {
+	/** Resolves term names to IDs, creating missing terms. Names that fail are returned in `failed`. */
+	async resolveTermIds(taxonomy: Taxonomy, names: string[]): Promise<{ ids: number[]; failed: string[] }> {
 		const ids: number[] = [];
+		const failed: string[] = [];
 		for (const name of names) {
 			try {
-				const id = await this.getOrCreateCategory(name);
-				ids.push(id);
-			} catch (error) {
-				console.warn(`Failed to resolve category "${name}":`, error);
+				ids.push(await this.getOrCreateTerm(taxonomy, name));
+			} catch {
+				failed.push(name);
 			}
 		}
-		return ids;
-	}
-
-	async resolveTagIds(names: string[]): Promise<number[]> {
-		const ids: number[] = [];
-		for (const name of names) {
-			try {
-				const id = await this.getOrCreateTag(name);
-				ids.push(id);
-			} catch (error) {
-				console.warn(`Failed to resolve tag "${name}":`, error);
-			}
-		}
-		return ids;
+		return { ids, failed };
 	}
 }
-
-

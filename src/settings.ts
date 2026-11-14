@@ -16,6 +16,7 @@ export const DEFAULT_SETTINGS: PluginSettings = {
 	defaultPostStatus: "draft",
 	uploadImages: true,
 	createTemplate: false,
+	mediaCache: {},
 };
 
 /** Settings tab UI for the plugin */

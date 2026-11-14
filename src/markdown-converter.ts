@@ -12,17 +12,10 @@ export class MarkdownConverter {
 	}
 
 	convert(markdown: string): string {
-		const content = this.removeFrontmatter(markdown);
-
-		const blocks = this.splitIntoBlocks(content);
+		const blocks = this.splitIntoBlocks(markdown.trim());
 		const gutenbergBlocks = blocks.map((block) => this.convertBlock(block));
 
 		return gutenbergBlocks.join("\n\n");
-	}
-
-	private removeFrontmatter(content: string): string {
-		const frontmatterRegex = /^---\n[\s\S]*?\n---\n*/;
-		return content.replace(frontmatterRegex, "").trim();
 	}
 
 	private splitIntoBlocks(content: string): string[] {
@@ -338,9 +331,8 @@ export class MarkdownConverter {
 		return result;
 	}
 
-	extractImageReferences(markdown: string): ImageReference[] {
+	extractImageReferences(content: string): ImageReference[] {
 		const images: ImageReference[] = [];
-		const content = this.removeFrontmatter(markdown);
 
 		const standardRegex = /!\[([^\]]*)\]\(([^)]+)\)/g;
 		let match;

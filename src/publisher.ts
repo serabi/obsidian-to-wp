@@ -1,8 +1,8 @@
-import { App, TFile, Notice, normalizePath } from "obsidian";
+import { App, TFile, Notice, normalizePath, getFrontMatterInfo, parseYaml } from "obsidian";
 import type { PluginSettings, PublishResult, UploadedImage, WordPressPostPayload, PostStatus } from "./types";
 import { WordPressClient } from "./wordpress-client";
 import { MarkdownConverter } from "./markdown-converter";
-import { parseFrontmatter, updateFrontmatter, getTitle } from "./frontmatter";
+import { normalizeFrontmatter, getTitle } from "./frontmatter";
 
 /** MIME type mapping for common image extensions */
 const MIME_TYPES: Record<string, string> = {
@@ -61,15 +61,17 @@ export class Publisher {
 
 		try {
 			const content = await this.app.vault.read(file);
-			const frontmatter = parseFrontmatter(content);
+			const info = getFrontMatterInfo(content);
+			const frontmatter = normalizeFrontmatter(info.exists ? parseYaml(info.frontmatter) : {});
+			const body = content.slice(info.contentStart);
 
 			const imageMap = new Map<string, UploadedImage>();
 			if (settings.uploadImages) {
-				await this.uploadImages(file, content, imageMap);
+				await this.uploadImages(file, body, imageMap);
 			}
 
 			this.markdownConverter.setImageMap(imageMap);
-			const gutenbergContent = this.markdownConverter.convert(content);
+			const gutenbergContent = this.markdownConverter.convert(body);
 			const status: PostStatus = overrideStatus ?? frontmatter.status ?? settings.defaultPostStatus;
 
 			const payload: WordPressPostPayload = {
@@ -96,29 +98,17 @@ export class Publisher {
 				payload.tags = await this.wordpressClient.resolveTagIds(frontmatter.tags);
 			}
 
-			let post;
-			if (frontmatter.wp_post_id) {
-				post = await this.wordpressClient.updatePost(frontmatter.wp_post_id, payload);
+			const post = frontmatter.wp_post_id
+				? await this.wordpressClient.updatePost(frontmatter.wp_post_id, payload)
+				: await this.wordpressClient.createPost(payload);
 
-				const updatedContent = updateFrontmatter(content, {
-					wp_post_url: post.link,
-					status: post.status,
-				});
-				await this.app.vault.modify(file, updatedContent);
+			await this.app.fileManager.processFrontMatter(file, (fm: Record<string, unknown>) => {
+				fm.wp_post_id = post.id;
+				fm.wp_post_url = post.link;
+				fm.status = post.status;
+			});
 
-				new Notice(`Updated post: ${post.title.rendered}`);
-			} else {
-				post = await this.wordpressClient.createPost(payload);
-				
-				const updatedContent = updateFrontmatter(content, {
-					wp_post_id: post.id,
-					wp_post_url: post.link,
-					status: post.status,
-				});
-				await this.app.vault.modify(file, updatedContent);
-				
-				new Notice(`Published: ${post.title.rendered}`);
-			}
+			new Notice(`${frontmatter.wp_post_id ? "Updated" : "Published"}: ${post.title.rendered}`);
 
 			return {
 				success: true,

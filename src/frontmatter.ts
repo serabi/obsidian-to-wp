@@ -1,4 +1,3 @@
-import * as yaml from "js-yaml";
 import type { PostFrontmatter, PostStatus } from "./types";
 
 const VALID_STATUSES: PostStatus[] = ["draft", "publish", "private", "future"];
@@ -24,138 +23,54 @@ function normalizeStringList(value: unknown): string[] | undefined {
 	return single ? [single] : undefined;
 }
 
-export function parseFrontmatter(content: string): PostFrontmatter {
-	const frontmatterMatch = content.match(/^---\n([\s\S]*?)\n---/);
-	
-	if (!frontmatterMatch) {
+export function normalizeFrontmatter(parsed: unknown): PostFrontmatter {
+	if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
 		return {};
 	}
 
-	const yamlContent = frontmatterMatch[1];
-	
-	try {
-		const parsed: unknown = yaml.load(yamlContent, { schema: yaml.FAILSAFE_SCHEMA });
-		
-		if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
-			return {};
-		}
+	const raw = parsed as Record<string, unknown>;
+	const result: PostFrontmatter = {};
 
-		const parsedFrontmatter = parsed as Record<string, unknown>;
-
-		const result: PostFrontmatter = {};
-
-		if (parsedFrontmatter.title !== undefined) {
-			result.title = String(parsedFrontmatter.title);
-		}
-		const slug = toNonEmptyString(parsedFrontmatter.slug);
-		if (slug) {
-			result.slug = slug;
-		}
-		if (parsedFrontmatter.status !== undefined) {
-			const status = String(parsedFrontmatter.status);
-			if (VALID_STATUSES.includes(status as PostStatus)) {
-				result.status = status as PostStatus;
-			}
-		}
-		if (parsedFrontmatter.excerpt !== undefined) {
-			result.excerpt = String(parsedFrontmatter.excerpt);
-		}
-		if (parsedFrontmatter.date !== undefined) {
-			result.date = String(parsedFrontmatter.date);
-		}
-		if (parsedFrontmatter.wp_post_id !== undefined) {
-			const id = typeof parsedFrontmatter.wp_post_id === "number" 
-				? parsedFrontmatter.wp_post_id 
-				: parseInt(String(parsedFrontmatter.wp_post_id), 10);
-			if (!isNaN(id)) {
-				result.wp_post_id = id;
-			}
-		}
-		if (parsedFrontmatter.wp_post_url !== undefined) {
-			result.wp_post_url = String(parsedFrontmatter.wp_post_url);
-		}
-		const categories = normalizeStringList(parsedFrontmatter.categories);
-		if (categories) {
-			result.categories = categories;
-		}
-		const tags = normalizeStringList(parsedFrontmatter.tags);
-		if (tags) {
-			result.tags = tags;
-		}
-
-		return result;
-	} catch (error) {
-		console.warn("Failed to parse frontmatter:", error);
-		return {};
+	const title = toNonEmptyString(raw.title);
+	if (title) {
+		result.title = title;
 	}
-}
-
-export function updateFrontmatter(
-	content: string,
-	updates: Partial<PostFrontmatter>
-): string {
-	const hasFrontmatter = content.match(/^---\n[\s\S]*?\n---/);
-
-	if (!hasFrontmatter) {
-		const yaml = generateYaml(updates);
-		return `---\n${yaml}---\n\n${content}`;
+	const slug = toNonEmptyString(raw.slug);
+	if (slug) {
+		result.slug = slug;
+	}
+	const status = toNonEmptyString(raw.status);
+	if (status && VALID_STATUSES.includes(status as PostStatus)) {
+		result.status = status as PostStatus;
+	}
+	const excerpt = toNonEmptyString(raw.excerpt);
+	if (excerpt) {
+		result.excerpt = excerpt;
+	}
+	const date = toNonEmptyString(raw.date);
+	if (date) {
+		result.date = date;
+	}
+	const id = parseInt(String(raw.wp_post_id), 10);
+	if (!isNaN(id)) {
+		result.wp_post_id = id;
+	}
+	const url = toNonEmptyString(raw.wp_post_url);
+	if (url) {
+		result.wp_post_url = url;
+	}
+	const categories = normalizeStringList(raw.categories);
+	if (categories) {
+		result.categories = categories;
+	}
+	const tags = normalizeStringList(raw.tags);
+	if (tags) {
+		result.tags = tags;
 	}
 
-	const existing = parseFrontmatter(content);
-	const merged = { ...existing, ...updates };
-	const yaml = generateYaml(merged);
-
-	return content.replace(/^---\n[\s\S]*?\n---/, `---\n${yaml}---`);
-}
-
-function generateYaml(frontmatter: PostFrontmatter): string {
-	const yamlObj: Record<string, unknown> = {};
-
-	if (frontmatter.title !== undefined) {
-		yamlObj.title = frontmatter.title;
-	}
-	if (frontmatter.slug !== undefined) {
-		yamlObj.slug = frontmatter.slug;
-	}
-	if (frontmatter.status !== undefined) {
-		yamlObj.status = frontmatter.status;
-	}
-	if (frontmatter.excerpt !== undefined) {
-		yamlObj.excerpt = frontmatter.excerpt;
-	}
-	if (frontmatter.date !== undefined) {
-		yamlObj.date = frontmatter.date;
-	}
-	if (frontmatter.wp_post_id !== undefined) {
-		yamlObj.wp_post_id = frontmatter.wp_post_id;
-	}
-	if (frontmatter.wp_post_url !== undefined) {
-		yamlObj.wp_post_url = frontmatter.wp_post_url;
-	}
-	if (frontmatter.categories && frontmatter.categories.length > 0) {
-		yamlObj.categories = frontmatter.categories;
-	}
-	if (frontmatter.tags && frontmatter.tags.length > 0) {
-		yamlObj.tags = frontmatter.tags;
-	}
-
-	try {
-		return yaml.dump(yamlObj, {
-			lineWidth: -1,
-			noRefs: true,
-			sortKeys: false,
-		});
-	} catch (error) {
-		console.warn("Failed to generate YAML:", error);
-		return "";
-	}
+	return result;
 }
 
 export function getTitle(frontmatter: PostFrontmatter, filename: string): string {
-	if (frontmatter.title) {
-		return frontmatter.title;
-	}
-	return filename.replace(/\.md$/, "");
+	return frontmatter.title ?? filename.replace(/\.md$/, "");
 }
-
-

@@ -1,4 +1,4 @@
-# Obsidian-to-WordPress: An Obsidian -> WordPress Publishing Plugin for WordPress
+# Sync for WordPress
 
 Publish your Obsidian notes directly to WordPress as Gutenberg block-formatted posts. This plugin converts Obsidian-flavored markdown (including callouts, wikilinks, and standard formatting) into WordPress block markup, handles image uploads to your WordPress media library, and authenticates securely using Application Passwords. Please note that this plugin is still under active development. Share any bugs you find via the Issues tab. 
 
@@ -14,6 +14,8 @@ Publish your Obsidian notes directly to WordPress as Gutenberg block-formatted p
 
 ## Installation
 
+Requires Obsidian 1.11.4 or later.
+
 ### Using BRAT (recommended for beta testing)
 
 1. Install [BRAT](https://github.com/TfTHacker/obsidian42-brat) from Obsidian Community Plugins
@@ -26,9 +28,9 @@ BRAT will automatically check for updates and keep your plugin current.
 
 ### Manual Installation
 
-1. Download `main.js`, `manifest.json`, and `styles.css` from the latest release
-2. Create a folder named `obsidian-to-wp` in your vault's `.obsidian/plugins/` directory
-3. Copy the downloaded files into this folder
+1. Download `main.js` and `manifest.json` from the latest release
+2. Create a folder named `sync-for-wordpress` in your vault's `.obsidian/plugins/` directory
+3. Copy both files into this folder
 4. Reload Obsidian and enable the plugin in **Settings > Community plugins**
 
 ## Setup
@@ -44,7 +46,7 @@ BRAT will automatically check for updates and keep your plugin current.
 
 ### Plugin Settings
 
-1. Open Obsidian **Settings > Obsidian to WordPress**
+1. Open Obsidian **Settings → Sync for WordPress**
 2. Enter your WordPress site URL (e.g., `https://example.com`)
 3. Enter your WordPress username
 4. Enter the Application Password you created
@@ -61,7 +63,7 @@ BRAT will automatically check for updates and keep your plugin current.
 **Option 1: Command Palette**
 1. Open the note you want to publish
 2. Press `Cmd/Ctrl + P` to open the command palette
-3. Search for "Publish current note to WordPress"
+3. Search for "Sync for WordPress: Publish current note"
 4. Press Enter
 
 **Option 2: Context Menu**

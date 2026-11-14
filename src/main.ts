@@ -1,15 +1,11 @@
-/**
- * Obsidian to WordPress Plugin
- * Publishes Obsidian notes to WordPress as Gutenberg block-formatted posts
- */
-
-import { Plugin, TFile, Menu, Notice, TAbstractFile, Modal, TFolder, normalizePath } from "obsidian";
+import { Plugin, TFile, Menu, Notice, TAbstractFile, TFolder, normalizePath } from "obsidian";
 import type { PluginSettings } from "./types";
 import { DEFAULT_SETTINGS, SettingsTab } from "./settings";
 import { WordPressClient } from "./wordpress-client";
 import { Publisher } from "./publisher";
+import { MissingFolderModal } from "./ui/missing-folder-modal";
 
-export default class ObsidianToWordPress extends Plugin {
+export default class SyncForWordPress extends Plugin {
 	settings!: PluginSettings;
 	wordpressClient!: WordPressClient;
 	private publisher!: Publisher;
@@ -25,8 +21,8 @@ export default class ObsidianToWordPress extends Plugin {
 		);
 
 		this.addCommand({
-			id: "publish-to-wordpress",
-			name: "Publish current note to WordPress",
+			id: "publish-current-note",
+			name: "Publish current note",
 			checkCallback: (checking: boolean) => {
 				const file = this.app.workspace.getActiveFile();
 				if (file && this.publisher.isPublishable(file)) {
@@ -40,8 +36,8 @@ export default class ObsidianToWordPress extends Plugin {
 		});
 
 		this.addCommand({
-			id: "publish-to-wordpress-draft",
-			name: "Publish current note to WordPress as draft",
+			id: "publish-current-note-as-draft",
+			name: "Publish current note as draft",
 			checkCallback: (checking: boolean) => {
 				const file = this.app.workspace.getActiveFile();
 				if (file && this.publisher.isPublishable(file)) {
@@ -87,7 +83,7 @@ export default class ObsidianToWordPress extends Plugin {
 
 		this.addSettingTab(new SettingsTab(this.app, this));
 
-		this.addRibbonIcon("cloud-upload", "WordPress Publishing", (evt: MouseEvent) => {
+		this.addRibbonIcon("cloud-upload", "WordPress publishing", (evt: MouseEvent) => {
 			const menu = new Menu();
 			const file = this.app.workspace.getActiveFile();
 			const canPublish = file && this.publisher.isPublishable(file);
@@ -115,7 +111,10 @@ export default class ObsidianToWordPress extends Plugin {
 					.setTitle("Open settings")
 					.setIcon("settings")
 					.onClick(() => {
-						const setting = (this.app as any).setting;
+						// ponytail: app.setting is not public API, but there is no public way to open a plugin's tab
+						const setting = (this.app as unknown as {
+							setting: { open(): void; openTabById(id: string): void };
+						}).setting;
 						setting.open();
 						setting.openTabById(this.manifest.id);
 					});
@@ -123,9 +122,6 @@ export default class ObsidianToWordPress extends Plugin {
 
 			menu.showAtMouseEvent(evt);
 		});
-	}
-
-	onunload(): void {
 	}
 
 	async loadSettings(): Promise<void> {
@@ -188,17 +184,17 @@ export default class ObsidianToWordPress extends Plugin {
 			return false;
 		}
 
-		const folder = this.app.vault.getAbstractFileByPath(normalizePath(folderPath));
-		if (folder instanceof TFolder) {
+		const normalized = normalizePath(folderPath);
+		if (this.app.vault.getAbstractFileByPath(normalized) instanceof TFolder) {
 			return false;
 		}
 
 		return new Promise((resolve) => {
-			new MissingFolderModal(this.app, folderPath, async (create) => {
+			new MissingFolderModal(this.app, normalized, async (create) => {
 				if (create) {
 					try {
-						await this.app.vault.createFolder(folderPath);
-						new Notice(`Created folder: ${folderPath}`);
+						await this.app.vault.createFolder(normalized);
+						new Notice(`Created folder: ${normalized}`);
 						resolve(false);
 					} catch (error) {
 						new Notice(`Failed to create folder: ${error instanceof Error ? error.message : "Unknown error"}`);
@@ -211,47 +207,3 @@ export default class ObsidianToWordPress extends Plugin {
 		});
 	}
 }
-
-class MissingFolderModal extends Modal {
-	private folderPath: string;
-	private onResult: (create: boolean) => void;
-
-	constructor(app: any, folderPath: string, onResult: (create: boolean) => void) {
-		super(app);
-		this.folderPath = folderPath;
-		this.onResult = onResult;
-	}
-
-	onOpen() {
-		const { contentEl } = this;
-		contentEl.empty();
-
-		contentEl.createEl("h3", { text: "Publishable folder not found" });
-		contentEl.createEl("p", {
-			text: `The configured publishable folder "${this.folderPath}" does not exist.`,
-		});
-
-		const buttonContainer = contentEl.createEl("div", {
-			attr: { style: "display: flex; justify-content: flex-end; gap: 8px; margin-top: 16px;" },
-		});
-
-		buttonContainer.createEl("button", { text: "Cancel" }).addEventListener("click", () => {
-			this.close();
-			this.onResult(false);
-		});
-
-		const createButton = buttonContainer.createEl("button", {
-			text: "Create folder",
-			cls: "mod-cta",
-		});
-		createButton.addEventListener("click", () => {
-			this.close();
-			this.onResult(true);
-		});
-	}
-
-	onClose() {
-		this.contentEl.empty();
-	}
-}
-

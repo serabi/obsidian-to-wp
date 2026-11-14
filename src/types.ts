@@ -1,6 +1,3 @@
-/**
- * TypeScript interfaces and types for the Obsidian to WordPress plugin
- */
 
 /** WordPress post status options */
 export type PostStatus = "draft" | "publish" | "private" | "future";

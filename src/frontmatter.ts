@@ -3,7 +3,10 @@ import type { PostFrontmatter, PostStatus } from "./types";
 const VALID_STATUSES: PostStatus[] = ["draft", "publish", "private", "future"];
 
 function toNonEmptyString(value: unknown): string | undefined {
-	if (value === null || value === undefined) {
+	if (value instanceof Date) {
+		return value.toISOString().slice(0, 19);
+	}
+	if (typeof value !== "string" && typeof value !== "number" && typeof value !== "boolean") {
 		return undefined;
 	}
 

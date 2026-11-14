@@ -33,7 +33,7 @@ export class SettingsTab extends PluginSettingTab {
 
 		new Setting(containerEl)
 			.setName("Site URL")
-			.setDesc("Your WordPress site address, for example https://example.com.")
+			.setDesc("The address of your WordPress site.")
 			.addText((text) =>
 				text
 					.setPlaceholder("https://example.com")
@@ -49,7 +49,6 @@ export class SettingsTab extends PluginSettingTab {
 			.setDesc("Your WordPress username, not your email address.")
 			.addText((text) =>
 				text
-					.setPlaceholder("admin")
 					.setValue(this.plugin.settings.username)
 					.onChange(async (value) => {
 						this.plugin.settings.username = value;
@@ -60,11 +59,10 @@ export class SettingsTab extends PluginSettingTab {
 		new Setting(containerEl)
 			.setName("Application password")
 			.setDesc(
-				"Create one in WordPress under Users → Profile → Application passwords."
+				"Create one on your WordPress profile page, in the application passwords section."
 			)
 			.addText((text) => {
 				text
-					.setPlaceholder("xxxx xxxx xxxx xxxx xxxx xxxx")
 					.setValue(this.plugin.settings.applicationPassword)
 					.onChange(async (value) => {
 						this.plugin.settings.applicationPassword = value;
@@ -104,7 +102,7 @@ export class SettingsTab extends PluginSettingTab {
 			.addSearch((search) => {
 				new FolderSuggest(this.app, search.inputEl);
 				search
-					.setPlaceholder("Blog/Posts")
+					.setPlaceholder("Blog")
 					.setValue(this.plugin.settings.publishableFolder)
 					.onChange(async (value) => {
 						const trimmed = value.trim();

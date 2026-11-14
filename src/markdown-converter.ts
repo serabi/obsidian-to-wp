@@ -296,13 +296,13 @@ export class MarkdownConverter {
 	private convertInlineFormatting(text: string): string {
 		let result = text;
 
-		result = result.replace(/!\[\[([^\]]+)\]\]/g, (match, path) => {
+		result = result.replace(/!\[\[([^\]]+)\]\]/g, (_match: string, path: string) => {
 			const uploaded = this.imageMap.get(path);
 			const url = uploaded?.wordpressUrl || path;
 			return `<img src="${url}" alt="${this.escapeHtml(path)}"/>`;
 		});
 
-		result = result.replace(/!\[([^\]]*)\]\(([^)]+)\)/g, (match, alt, path) => {
+		result = result.replace(/!\[([^\]]*)\]\(([^)]+)\)/g, (_match: string, alt: string, path: string) => {
 			const uploaded = this.imageMap.get(path);
 			const url = uploaded?.wordpressUrl || path;
 			return `<img src="${url}" alt="${this.escapeHtml(alt)}"/>`;

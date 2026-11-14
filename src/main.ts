@@ -27,7 +27,7 @@ export default class SyncForWordPress extends Plugin {
 				const file = this.app.workspace.getActiveFile();
 				if (file && this.publisher.isPublishable(file)) {
 					if (!checking) {
-						this.publishCurrentNote();
+						void this.publishCurrentNote();
 					}
 					return true;
 				}
@@ -42,7 +42,7 @@ export default class SyncForWordPress extends Plugin {
 				const file = this.app.workspace.getActiveFile();
 				if (file && this.publisher.isPublishable(file)) {
 					if (!checking) {
-						this.publishCurrentNoteAsDraft();
+						void this.publishCurrentNoteAsDraft();
 					}
 					return true;
 				}
@@ -125,7 +125,7 @@ export default class SyncForWordPress extends Plugin {
 	}
 
 	async loadSettings(): Promise<void> {
-		this.settings = Object.assign({}, DEFAULT_SETTINGS, await this.loadData());
+		this.settings = Object.assign({}, DEFAULT_SETTINGS, (await this.loadData()) as Partial<PluginSettings>);
 	}
 
 	async saveSettings(): Promise<void> {
@@ -190,19 +190,21 @@ export default class SyncForWordPress extends Plugin {
 		}
 
 		return new Promise((resolve) => {
-			new MissingFolderModal(this.app, normalized, async (create) => {
-				if (create) {
-					try {
-						await this.app.vault.createFolder(normalized);
+			new MissingFolderModal(this.app, normalized, (create) => {
+				if (!create) {
+					resolve(true);
+					return;
+				}
+				this.app.vault.createFolder(normalized).then(
+					() => {
 						new Notice(`Created folder: ${normalized}`);
 						resolve(false);
-					} catch (error) {
+					},
+					(error: unknown) => {
 						new Notice(`Failed to create folder: ${error instanceof Error ? error.message : "Unknown error"}`);
 						resolve(true);
-					}
-				} else {
-					resolve(true);
-				}
+					},
+				);
 			}).open();
 		});
 	}

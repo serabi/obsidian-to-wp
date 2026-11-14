@@ -107,36 +107,3 @@ export interface PublishResult {
 	postUrl?: string;
 	error?: string;
 }
-
-/** Image reference found in markdown */
-export interface ImageReference {
-	/** Original markdown syntax (e.g., ![alt](path) or ![[wikilink]]) */
-	originalSyntax: string;
-	/** Path to the image file */
-	path: string;
-	/** Alt text if provided */
-	altText: string;
-	/** Whether this is a wikilink style embed */
-	isWikilink: boolean;
-}
-
-/** Uploaded image mapping */
-export interface UploadedImage {
-	/** Local path to the image */
-	localPath: string;
-	/** WordPress media URL after upload */
-	wordpressUrl: string;
-	/** WordPress media ID */
-	mediaId: number;
-}
-
-/** Callout type mapping to styling */
-export interface CalloutInfo {
-	type: string;
-	title: string;
-	content: string;
-	foldable: boolean;
-	defaultFolded: boolean;
-}
-
-

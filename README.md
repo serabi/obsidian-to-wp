@@ -117,11 +117,18 @@ The plugin converts the following Obsidian markdown elements to Gutenberg blocks
 | Paragraphs | Paragraph block |
 | Code blocks | Code block |
 | Blockquotes (`>`) | Quote block |
-| Unordered lists (`-`, `*`) | List block |
+| Unordered lists (`-`, `*`), including nested lists | List block |
 | Ordered lists (`1.`, `2.`) | List block (ordered) |
-| Images (`![]()`, `![[]]`) | Image block |
-| Callouts (`> [!note]`) | Quote block with callout styling |
+| Task lists (`- [ ]`, `- [x]`) | List block with ☐ and ☑ |
+| Tables | Table block |
+| Images (`![]()`, `![[image.png\|300]]`) | Image block, with width when given |
+| Callouts (`> [!note]`) | Quote block with `callout callout-note` classes |
+| Foldable callouts (`> [!note]-`, `> [!note]+`) | Details block |
+| Footnotes (`[^1]`) | Custom HTML block at the end of the post |
+| HTML | Custom HTML block |
 | Horizontal rules (`---`) | Separator block |
+
+Comments (`%%hidden%%`) are left out of the post.
 
 ### Inline Formatting
 
@@ -131,7 +138,7 @@ The plugin converts the following Obsidian markdown elements to Gutenberg blocks
 - `Inline code` (`` `code` ``)
 - ==Highlights== (`==text==`)
 - [Links](url) (`[text](url)`)
-- Wikilinks are converted to plain text
+- Wikilinks (`[[Note]]`, `[[Note|text]]`) link to the WordPress post when the linked note has been published, and become plain text otherwise
 
 ## Roadmap
 

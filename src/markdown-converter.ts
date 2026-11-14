@@ -1,395 +1,627 @@
 /**
- * Converts Obsidian-flavored markdown to WordPress Gutenberg block markup
+ * Converts Obsidian-flavored markdown to WordPress block markup.
+ * Kept free of Obsidian imports so it can be tested in Node.
  */
 
-import type { ImageReference, CalloutInfo, UploadedImage } from "./types";
+import MarkdownIt from "markdown-it";
+import type { Env as MarkdownItEnv, StateInline, Token } from "markdown-it";
+import footnote from "markdown-it-footnote";
+import mark from "markdown-it-mark";
 
-export class MarkdownConverter {
-	private imageMap: Map<string, UploadedImage> = new Map();
+export interface ResolvedImage {
+	url: string;
+	id?: number;
+}
 
-	setImageMap(map: Map<string, UploadedImage>): void {
-		this.imageMap = map;
+export interface Resolvers {
+	/** Maps an image path as written in the note to its WordPress URL. */
+	image(path: string): ResolvedImage | undefined;
+	/** Maps a link target (note name or path) to a published post URL. */
+	link(target: string): string | undefined;
+}
+
+type Env = MarkdownItEnv & { resolvers: Resolvers };
+
+interface WikilinkMeta {
+	target: string;
+	alias?: string;
+	embed: boolean;
+}
+
+const IMAGE_EXTENSIONS = /\.(png|jpe?g|gif|webp|svg|avif|bmp)$/i;
+const SIZE = /^(\d+)(?:x(\d+))?$/;
+const CALLOUT = /^\[!([\w-]+)\]([+-]?)[ \t]*(.*)$/;
+
+const NO_RESOLVERS: Resolvers = { image: () => undefined, link: () => undefined };
+
+const md = new MarkdownIt({ html: true, linkify: true, breaks: true })
+	.use(footnote)
+	.use(mark);
+const escape = md.utils.escapeHtml;
+
+function wikilinkRule(state: StateInline, silent: boolean): boolean {
+	const start = state.pos;
+	const embed = state.src.charCodeAt(start) === 0x21; /* ! */
+	const open = embed ? start + 1 : start;
+	if (!state.src.startsWith("[[", open)) {
+		return false;
 	}
-
-	convert(markdown: string): string {
-		const blocks = this.splitIntoBlocks(markdown.trim());
-		const gutenbergBlocks = blocks.map((block) => this.convertBlock(block));
-
-		return gutenbergBlocks.join("\n\n");
+	const close = state.src.indexOf("]]", open + 2);
+	if (close < 0 || state.src.slice(open + 2, close).includes("\n")) {
+		return false;
 	}
-
-	private splitIntoBlocks(content: string): string[] {
-		const blocks: string[] = [];
-		const lines = content.split("\n");
-		let currentBlock: string[] = [];
-		let inCodeBlock = false;
-		let inCallout = false;
-
-		for (let i = 0; i < lines.length; i++) {
-			const line = lines[i];
-
-			if (line.startsWith("```")) {
-				if (inCodeBlock) {
-					currentBlock.push(line);
-					blocks.push(currentBlock.join("\n"));
-					currentBlock = [];
-					inCodeBlock = false;
-				} else {
-					if (currentBlock.length > 0) {
-						blocks.push(currentBlock.join("\n"));
-						currentBlock = [];
-					}
-					currentBlock.push(line);
-					inCodeBlock = true;
-				}
-				continue;
-			}
-
-			if (inCodeBlock) {
-				currentBlock.push(line);
-				continue;
-			}
-
-			if (line.match(/^>\s*\[!/)) {
-				if (currentBlock.length > 0) {
-					blocks.push(currentBlock.join("\n"));
-					currentBlock = [];
-				}
-				inCallout = true;
-				currentBlock.push(line);
-				continue;
-			}
-
-			if (inCallout) {
-				if (line.startsWith(">") || line.trim() === "") {
-					currentBlock.push(line);
-					continue;
-				} else {
-					blocks.push(currentBlock.join("\n"));
-					currentBlock = [];
-					inCallout = false;
-				}
-			}
-
-			if (line.match(/^#{1,6}\s/)) {
-				if (currentBlock.length > 0) {
-					blocks.push(currentBlock.join("\n"));
-					currentBlock = [];
-				}
-				blocks.push(line);
-				continue;
-			}
-
-			if (line.match(/^(-{3,}|\*{3,}|_{3,})$/)) {
-				if (currentBlock.length > 0) {
-					blocks.push(currentBlock.join("\n"));
-					currentBlock = [];
-				}
-				blocks.push(line);
-				continue;
-			}
-
-			if (line.match(/^(\s*[-*+]|\s*\d+\.)\s/)) {
-				if (currentBlock.length > 0 && !currentBlock[0].match(/^(\s*[-*+]|\s*\d+\.)\s/)) {
-					blocks.push(currentBlock.join("\n"));
-					currentBlock = [];
-				}
-				currentBlock.push(line);
-				continue;
-			}
-
-			if (line.startsWith(">") && !line.match(/^>\s*\[!/)) {
-				if (currentBlock.length > 0 && !currentBlock[0].startsWith(">")) {
-					blocks.push(currentBlock.join("\n"));
-					currentBlock = [];
-				}
-				currentBlock.push(line);
-				continue;
-			}
-
-			if (line.match(/^!\[.*?\]\(.*?\)$/) || line.match(/^!\[\[.*?\]\]$/)) {
-				if (currentBlock.length > 0) {
-					blocks.push(currentBlock.join("\n"));
-					currentBlock = [];
-				}
-				blocks.push(line);
-				continue;
-			}
-
-			if (line.trim() === "") {
-				if (currentBlock.length > 0) {
-					blocks.push(currentBlock.join("\n"));
-					currentBlock = [];
-				}
-				continue;
-			}
-
-			currentBlock.push(line);
-		}
-
-		if (currentBlock.length > 0) {
-			blocks.push(currentBlock.join("\n"));
-		}
-
-		return blocks.filter((b) => b.trim() !== "");
+	if (!silent) {
+		const [target, ...rest] = state.src.slice(open + 2, close).split("|");
+		const token = state.push("wikilink", "", 0);
+		token.meta = {
+			target: target.trim(),
+			alias: rest.length ? rest.join("|").trim() : undefined,
+			embed,
+		} satisfies WikilinkMeta;
 	}
+	state.pos = close + 2;
+	return true;
+}
 
-	private convertBlock(block: string): string {
-		const trimmed = block.trim();
+md.inline.ruler.before("link", "wikilink", wikilinkRule);
 
-		const headerMatch = trimmed.match(/^(#{1,6})\s+(.+)$/);
-		if (headerMatch) {
-			const level = headerMatch[1].length;
-			const text = this.convertInlineFormatting(headerMatch[2]);
-			return `<!-- wp:heading {"level":${level}} -->\n<h${level}>${text}</h${level}>\n<!-- /wp:heading -->`;
-		}
-
-		if (trimmed.startsWith("```")) {
-			return this.convertCodeBlock(trimmed);
-		}
-
-		if (trimmed.match(/^>\s*\[!/)) {
-			return this.convertCallout(trimmed);
-		}
-
-		if (trimmed.startsWith(">")) {
-			return this.convertBlockquote(trimmed);
-		}
-
-		if (trimmed.match(/^(-{3,}|\*{3,}|_{3,})$/)) {
-			return "<!-- wp:separator -->\n<hr class=\"wp-block-separator has-alpha-channel-opacity\"/>\n<!-- /wp:separator -->";
-		}
-
-		if (trimmed.match(/^\d+\.\s/)) {
-			return this.convertOrderedList(trimmed);
-		}
-
-		if (trimmed.match(/^[-*+]\s/)) {
-			return this.convertUnorderedList(trimmed);
-		}
-
-		if (trimmed.match(/^!\[.*?\]\(.*?\)$/) || trimmed.match(/^!\[\[.*?\]\]$/)) {
-			return this.convertImage(trimmed);
-		}
-
-		return this.convertParagraph(trimmed);
+/** Splits Obsidian's `alt|300` or `alt|300x200` into alt text and size. */
+function parseSize(text: string | undefined): {
+	alt?: string;
+	width?: number;
+	height?: number;
+} {
+	if (!text) {
+		return {};
 	}
-
-	/** Convert a code block */
-	private convertCodeBlock(block: string): string {
-		const lines = block.split("\n");
-		const firstLine = lines[0];
-		const language = firstLine.replace(/^```/, "").trim() || "";
-		const code = lines.slice(1, -1).join("\n");
-		const escapedCode = this.escapeHtml(code);
-
-		if (language) {
-			return `<!-- wp:code -->\n<pre class="wp-block-code"><code class="language-${language}">${escapedCode}</code></pre>\n<!-- /wp:code -->`;
-		}
-		return `<!-- wp:code -->\n<pre class="wp-block-code"><code>${escapedCode}</code></pre>\n<!-- /wp:code -->`;
+	const parts = text.split("|");
+	const size = SIZE.exec(parts[parts.length - 1].trim());
+	if (!size) {
+		return { alt: text };
 	}
+	parts.pop();
+	return {
+		alt: parts.join("|") || undefined,
+		width: Number(size[1]),
+		height: size[2] ? Number(size[2]) : undefined,
+	};
+}
 
-	private convertCallout(block: string): string {
-		const calloutInfo = this.parseCallout(block);
-		const contentHtml = this.convertInlineFormatting(calloutInfo.content);
-		const typeClass = `callout-${calloutInfo.type.toLowerCase()}`;
-		
-		return `<!-- wp:quote {"className":"${typeClass}"} -->
-<blockquote class="wp-block-quote ${typeClass}"><p><strong>${this.escapeHtml(calloutInfo.title)}</strong></p><p>${contentHtml}</p></blockquote>
-<!-- /wp:quote -->`;
+function wikilinkMeta(token: Token): WikilinkMeta {
+	return token.meta as unknown as WikilinkMeta;
+}
+
+function linkTarget(target: string): string {
+	return target.split("#")[0];
+}
+
+function displayName(meta: WikilinkMeta): string {
+	return (
+		meta.alias || meta.target.replace(/#\^?/g, " > ").replace(/^ > /, "")
+	);
+}
+
+function isImageEmbed(token: Token): boolean {
+	return (
+		token.type === "wikilink" &&
+		wikilinkMeta(token).embed &&
+		IMAGE_EXTENSIONS.test(linkTarget(wikilinkMeta(token).target))
+	);
+}
+
+interface ImageSpec {
+	path: string;
+	alt: string;
+	width?: number;
+	height?: number;
+}
+
+function imageSpec(token: Token): ImageSpec {
+	if (token.type === "wikilink") {
+		const meta = wikilinkMeta(token);
+		const { alt, width, height } = parseSize(meta.alias);
+		return { path: linkTarget(meta.target), alt: alt ?? "", width, height };
 	}
+	const { alt, width, height } = parseSize(token.content);
+	return {
+		path: safeDecode(String(token.attrGet("src") ?? "")),
+		alt: alt ?? "",
+		width,
+		height,
+	};
+}
 
-	/** Parse callout syntax into structured data */
-	private parseCallout(block: string): CalloutInfo {
-		const lines = block.split("\n");
-		const firstLine = lines[0];
-		const headerMatch = firstLine.match(/^>\s*\[!(\w+)\]([-+])?\s*(.*)$/);
-		
-		let type = "note";
-		let title = "";
-		let foldable = false;
-		let defaultFolded = false;
-
-		if (headerMatch) {
-			type = headerMatch[1];
-			if (headerMatch[2] === "+") {
-				foldable = true;
-				defaultFolded = false;
-			} else if (headerMatch[2] === "-") {
-				foldable = true;
-				defaultFolded = true;
-			}
-			title = headerMatch[3] || type.charAt(0).toUpperCase() + type.slice(1);
-		}
-
-		const content = lines
-			.slice(1)
-			.map((line) => line.replace(/^>\s?/, ""))
-			.join("\n")
-			.trim();
-
-		return { type, title, content, foldable, defaultFolded };
-	}
-
-	private convertBlockquote(block: string): string {
-		const content = block
-			.split("\n")
-			.map((line) => line.replace(/^>\s?/, ""))
-			.join("\n");
-		const html = this.convertInlineFormatting(content);
-		return `<!-- wp:quote -->\n<blockquote class="wp-block-quote"><p>${html}</p></blockquote>\n<!-- /wp:quote -->`;
-	}
-
-	private convertUnorderedList(block: string): string {
-		const items = this.parseListItems(block, /^[-*+]\s/);
-		const listHtml = items.map((item) => `<li>${this.convertInlineFormatting(item)}</li>`).join("");
-		return `<!-- wp:list -->\n<ul class="wp-block-list">${listHtml}</ul>\n<!-- /wp:list -->`;
-	}
-
-	private convertOrderedList(block: string): string {
-		const items = this.parseListItems(block, /^\d+\.\s/);
-		const listHtml = items.map((item) => `<li>${this.convertInlineFormatting(item)}</li>`).join("");
-		return `<!-- wp:list {"ordered":true} -->\n<ol class="wp-block-list">${listHtml}</ol>\n<!-- /wp:list -->`;
-	}
-
-	private parseListItems(block: string, pattern: RegExp): string[] {
-		const lines = block.split("\n");
-		const items: string[] = [];
-		let currentItem = "";
-
-		for (const line of lines) {
-			if (line.match(pattern)) {
-				if (currentItem) {
-					items.push(currentItem);
-				}
-				currentItem = line.replace(pattern, "");
-			} else if (line.match(/^\s+/) && currentItem) {
-				currentItem += " " + line.trim();
-			}
-		}
-
-		if (currentItem) {
-			items.push(currentItem);
-		}
-
-		return items;
-	}
-
-	private convertImage(block: string): string {
-		const imageRef = this.extractImageReference(block);
-		if (!imageRef) {
-			return this.convertParagraph(block);
-		}
-
-		const uploaded = this.imageMap.get(imageRef.path);
-		const url = uploaded?.wordpressUrl || imageRef.path;
-		const alt = this.escapeHtml(imageRef.altText);
-
-		return `<!-- wp:image -->\n<figure class="wp-block-image"><img src="${url}" alt="${alt}"/></figure>\n<!-- /wp:image -->`;
-	}
-
-	private convertParagraph(block: string): string {
-		const html = this.convertInlineFormatting(block);
-		return `<!-- wp:paragraph -->\n<p>${html}</p>\n<!-- /wp:paragraph -->`;
-	}
-
-	private convertInlineFormatting(text: string): string {
-		let result = text;
-
-		result = result.replace(/!\[\[([^\]]+)\]\]/g, (_match: string, path: string) => {
-			const uploaded = this.imageMap.get(path);
-			const url = uploaded?.wordpressUrl || path;
-			return `<img src="${url}" alt="${this.escapeHtml(path)}"/>`;
-		});
-
-		result = result.replace(/!\[([^\]]*)\]\(([^)]+)\)/g, (_match: string, alt: string, path: string) => {
-			const uploaded = this.imageMap.get(path);
-			const url = uploaded?.wordpressUrl || path;
-			return `<img src="${url}" alt="${this.escapeHtml(alt)}"/>`;
-		});
-
-		result = result.replace(/\[\[([^\]|]+)\|([^\]]+)\]\]/g, "$2");
-		result = result.replace(/\[\[([^\]]+)\]\]/g, "$1");
-
-		result = result.replace(/\*\*\*([^*]+)\*\*\*/g, "<strong><em>$1</em></strong>");
-		result = result.replace(/___([^_]+)___/g, "<strong><em>$1</em></strong>");
-
-		result = result.replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>");
-		result = result.replace(/__([^_]+)__/g, "<strong>$1</strong>");
-
-		result = result.replace(/\*([^*]+)\*/g, "<em>$1</em>");
-		result = result.replace(/(?<![a-zA-Z])_([^_]+)_(?![a-zA-Z])/g, "<em>$1</em>");
-
-		result = result.replace(/~~([^~]+)~~/g, "<del>$1</del>");
-
-		result = result.replace(/`([^`]+)`/g, "<code>$1</code>");
-
-		result = result.replace(/==([^=]+)==/g, "<mark>$1</mark>");
-
-		result = result.replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2">$1</a>');
-
-		return result;
-	}
-
-	extractImageReferences(content: string): ImageReference[] {
-		const images: ImageReference[] = [];
-
-		const standardRegex = /!\[([^\]]*)\]\(([^)]+)\)/g;
-		let match;
-		while ((match = standardRegex.exec(content)) !== null) {
-			images.push({
-				originalSyntax: match[0],
-				altText: match[1],
-				path: match[2],
-				isWikilink: false,
-			});
-		}
-
-		const wikilinkRegex = /!\[\[([^\]|]+)(?:\|([^\]]+))?\]\]/g;
-		while ((match = wikilinkRegex.exec(content)) !== null) {
-			images.push({
-				originalSyntax: match[0],
-				path: match[1],
-				altText: match[2] || match[1],
-				isWikilink: true,
-			});
-		}
-
-		return images;
-	}
-
-	private extractImageReference(block: string): ImageReference | null {
-		const standardMatch = block.match(/!\[([^\]]*)\]\(([^)]+)\)/);
-		if (standardMatch) {
-			return {
-				originalSyntax: standardMatch[0],
-				altText: standardMatch[1],
-				path: standardMatch[2],
-				isWikilink: false,
-			};
-		}
-
-		const wikilinkMatch = block.match(/!\[\[([^\]|]+)(?:\|([^\]]+))?\]\]/);
-		if (wikilinkMatch) {
-			return {
-				originalSyntax: wikilinkMatch[0],
-				path: wikilinkMatch[1],
-				altText: wikilinkMatch[2] || wikilinkMatch[1],
-				isWikilink: true,
-			};
-		}
-
-		return null;
-	}
-
-	private escapeHtml(text: string): string {
-		return text
-			.replace(/&/g, "&amp;")
-			.replace(/</g, "&lt;")
-			.replace(/>/g, "&gt;")
-			.replace(/"/g, "&quot;")
-			.replace(/'/g, "&#039;");
+function safeDecode(value: string): string {
+	try {
+		return decodeURI(value);
+	} catch {
+		return value;
 	}
 }
 
+function resolveImage(spec: ImageSpec, env: Env): ResolvedImage {
+	return env.resolvers.image(spec.path) ?? { url: spec.path };
+}
 
+function imgTag(
+	spec: ImageSpec,
+	image: ResolvedImage,
+	extraClass?: string,
+): string {
+	const attrs = [`src="${escape(image.url)}"`, `alt="${escape(spec.alt)}"`];
+	if (extraClass) {
+		attrs.push(`class="${extraClass}"`);
+	}
+	const style = [
+		spec.width && `width:${spec.width}px`,
+		spec.height && `height:${spec.height}px`,
+	]
+		.filter(Boolean)
+		.join(";");
+	if (style) {
+		attrs.push(`style="${style}"`);
+	}
+	return `<img ${attrs.join(" ")}/>`;
+}
+
+md.renderer.rules.wikilink = (tokens, idx, _options, mdEnv) => {
+	const env = mdEnv as Env;
+	const meta = wikilinkMeta(tokens[idx]);
+	if (isImageEmbed(tokens[idx])) {
+		const spec = imageSpec(tokens[idx]);
+		return imgTag(spec, resolveImage(spec, env));
+	}
+	const url = env.resolvers.link(linkTarget(meta.target));
+	const text = escape(displayName(meta));
+	return url ? `<a href="${escape(url)}">${text}</a>` : text;
+};
+
+/**
+ * Removes Obsidian `%%comments%%` from the whole note before conversion, so a comment
+ * can span blocks, HTML, links and alt text. Only lines that markdown-it itself parses
+ * as code blocks keep `%%`, and only when they are not already inside a comment.
+ */
+export function stripComments(markdown: string): string {
+	// Stripping can change how the rest parses, so repeat until the text that will be
+	// converted has `%%` only inside its own code blocks. Each pass removes text, so it ends.
+	let text = markdown;
+	for (;;) {
+		const next = stripCommentsOnce(text);
+		if (next === text) {
+			return text;
+		}
+		text = next;
+	}
+}
+
+function stripCommentsOnce(markdown: string): string {
+	if (!markdown.includes("%%")) {
+		return markdown;
+	}
+	const codeLines = new Set<number>();
+	for (const token of md.parse(markdown, { resolvers: NO_RESOLVERS })) {
+		if ((token.type === "fence" || token.type === "code_block") && token.map) {
+			for (let line = token.map[0]; line < token.map[1]; line++) {
+				codeLines.add(line);
+			}
+		}
+	}
+
+	// ponytail: inline code is not protected, so `%%` inside backticks is hidden too; errs toward hiding
+	let inComment = false;
+	const out: string[] = [];
+	markdown.split("\n").forEach((line, index) => {
+		if (codeLines.has(index) && !inComment) {
+			out.push(line);
+			return;
+		}
+		const touched = inComment || line.includes("%%");
+		let kept = "";
+		line.split("%%").forEach((part, i) => {
+			if (i > 0) {
+				inComment = !inComment;
+				if (inComment) {
+					kept = kept.replace(/[ \t]+$/, "");
+				}
+			}
+			if (!inComment) {
+				kept += part;
+			}
+		});
+		if (!touched || kept.trim()) {
+			out.push(touched ? kept.trimEnd() : line);
+		}
+	});
+	return out.join("\n");
+}
+
+md.renderer.rules.softbreak = () => "<br>";
+
+
+md.renderer.rules.image = (tokens, idx, _options, mdEnv) => {
+	const env = mdEnv as Env;
+	const spec = imageSpec(tokens[idx]);
+	return imgTag(spec, resolveImage(spec, env));
+};
+
+const defaultLinkOpen =
+	md.renderer.rules.link_open ??
+	((tokens, idx, options, _env, self) =>
+		self.renderToken(tokens, idx, options));
+md.renderer.rules.link_open = (tokens, idx, options, mdEnv, self) => {
+	const env = mdEnv as Env;
+	const href = String(tokens[idx].attrGet("href") ?? "");
+	if (href && !/^([a-z][a-z0-9+.-]*:|#|\/\/)/i.test(href)) {
+		const url = env.resolvers.link(
+			linkTarget(safeDecode(href)).replace(/\.md$/i, ""),
+		);
+		if (url) {
+			tokens[idx].attrSet("href", url);
+		}
+	}
+	return defaultLinkOpen(tokens, idx, options, env, self);
+};
+
+function block(
+	name: string,
+	html: string,
+	attrs?: Record<string, unknown>,
+): string {
+	const json =
+		attrs && Object.keys(attrs).length ? ` ${JSON.stringify(attrs)}` : "";
+	return `<!-- wp:${name}${json} -->\n${html}\n<!-- /wp:${name} -->`;
+}
+
+function findClose(tokens: Token[], open: number): number {
+	let depth = 0;
+	for (let i = open; i < tokens.length; i++) {
+		depth += tokens[i].nesting;
+		if (depth === 0) {
+			return i;
+		}
+	}
+	return tokens.length - 1;
+}
+
+function renderInline(token: Token, env: Env): string {
+	return md.renderer.renderInline(token.children ?? [], md.options, env);
+}
+
+function renderInlineSource(src: string, env: Env): string {
+	return md.renderInline(src, env);
+}
+
+function paragraph(html: string): string {
+	return block("paragraph", `<p>${html}</p>`);
+}
+
+function imageBlock(token: Token, env: Env): string {
+	const spec = imageSpec(token);
+	const image = resolveImage(spec, env);
+	const attrs: Record<string, unknown> = {};
+	const figureClass = ["wp-block-image"];
+	if (image.id) {
+		attrs.id = image.id;
+	}
+	if (spec.width) {
+		attrs.width = `${spec.width}px`;
+	}
+	if (spec.height) {
+		attrs.height = `${spec.height}px`;
+	}
+	if (image.id) {
+		attrs.sizeSlug = "full";
+		attrs.linkDestination = "none";
+		figureClass.push("size-full");
+	}
+	if (spec.width || spec.height) {
+		figureClass.push("is-resized");
+	}
+	const img = imgTag(
+		spec,
+		image,
+		image.id ? `wp-image-${image.id}` : undefined,
+	);
+	return block(
+		"image",
+		`<figure class="${figureClass.join(" ")}">${img}</figure>`,
+		attrs,
+	);
+}
+
+/** A paragraph made only of images becomes one image block per image. */
+function imageOnlyParagraph(inline: Token, env: Env): string[] | undefined {
+	const children = inline.children ?? [];
+	const images = children.filter(
+		(t) => t.type === "image" || isImageEmbed(t),
+	);
+	const onlyImages =
+		images.length > 0 &&
+		children.every(
+			(t) =>
+				t.type === "image" ||
+				isImageEmbed(t) ||
+				t.type === "softbreak" ||
+				(t.type === "text" && !t.content.trim()),
+		);
+	return onlyImages ? images.map((t) => imageBlock(t, env)) : undefined;
+}
+
+function taskMarker(html: string): string {
+	return html.replace(/^\[ \] /, "☐ ").replace(/^\[[xX]\] /, "☑ ");
+}
+
+function listBlock(
+	tokens: Token[],
+	open: number,
+	close: number,
+	env: Env,
+): string {
+	const ordered = tokens[open].type === "ordered_list_open";
+	const start = Number(tokens[open].attrGet("start") ?? 1);
+	const items: string[] = [];
+
+	for (let i = open + 1; i < close; i++) {
+		if (tokens[i].type !== "list_item_open") {
+			continue;
+		}
+		const itemClose = findClose(tokens, i);
+		const text: string[] = [];
+		const nested: string[] = [];
+		for (let j = i + 1; j < itemClose; j++) {
+			const token = tokens[j];
+			if (token.type === "inline") {
+				text.push(renderInline(token, env));
+			} else if (
+				token.type === "bullet_list_open" ||
+				token.type === "ordered_list_open"
+			) {
+				const end = findClose(tokens, j);
+				nested.push(listBlock(tokens, j, end, env));
+				j = end;
+			} else if (token.type === "fence" || token.type === "code_block") {
+				// ponytail: list items only hold rich text and nested lists, so code is kept inline
+				text.push(
+					`<code>${escape(token.content.replace(/\n$/, ""))}</code>`,
+				);
+			}
+		}
+		items.push(
+			block(
+				"list-item",
+				`<li>${taskMarker(text.join("<br>"))}${nested.join("\n\n")}</li>`,
+			),
+		);
+		i = itemClose;
+	}
+
+	const tag = ordered ? "ol" : "ul";
+	const attrs: Record<string, unknown> = {};
+	if (ordered) {
+		attrs.ordered = true;
+	}
+	if (ordered && start !== 1) {
+		attrs.start = start;
+	}
+	const startAttr = ordered && start !== 1 ? ` start="${start}"` : "";
+	return block(
+		"list",
+		`<${tag}${startAttr} class="wp-block-list">${items.join("\n\n")}</${tag}>`,
+		attrs,
+	);
+}
+
+function cellAttrs(token: Token): string {
+	const align = /text-align:(\w+)/.exec(String(token.attrGet("style") ?? ""))?.[1];
+	return align
+		? ` class="has-text-align-${align}" data-align="${align}"`
+		: "";
+}
+
+function tableBlock(
+	tokens: Token[],
+	open: number,
+	close: number,
+	env: Env,
+): string {
+	let html = "";
+	for (let i = open + 1; i < close; i++) {
+		const token = tokens[i];
+		switch (token.type) {
+			case "thead_open":
+				html += "<thead>";
+				break;
+			case "thead_close":
+				html += "</thead>";
+				break;
+			case "tbody_open":
+				html += "<tbody>";
+				break;
+			case "tbody_close":
+				html += "</tbody>";
+				break;
+			case "tr_open":
+				html += "<tr>";
+				break;
+			case "tr_close":
+				html += "</tr>";
+				break;
+			case "th_open":
+			case "td_open":
+				html += `<${token.tag}${cellAttrs(token)}>`;
+				break;
+			case "th_close":
+			case "td_close":
+				html += `</${token.tag}>`;
+				break;
+			case "inline":
+				html += renderInline(token, env);
+				break;
+		}
+	}
+	return block(
+		"table",
+		`<figure class="wp-block-table"><table class="has-fixed-layout">${html}</table></figure>`,
+	);
+}
+
+function calloutBlock(
+	tokens: Token[],
+	open: number,
+	close: number,
+	env: Env,
+): string | undefined {
+	const first = tokens[open + 1];
+	const inline = tokens[open + 2];
+	if (first?.type !== "paragraph_open" || inline?.type !== "inline") {
+		return undefined;
+	}
+	const [firstLine, ...restLines] = inline.content.split("\n");
+	const match = CALLOUT.exec(firstLine);
+	if (!match) {
+		return undefined;
+	}
+	const [, type, fold, rawTitle] = match;
+	const title = rawTitle
+		? renderInlineSource(rawTitle, env)
+		: escape(type.charAt(0).toUpperCase() + type.slice(1).toLowerCase());
+	const rest = restLines.join("\n");
+	const body = [
+		...(rest.trim() ? [paragraph(renderInlineSource(rest, env))] : []),
+		...renderBlocks(tokens, findClose(tokens, open + 1) + 1, close, env),
+	].join("\n\n");
+	const className = `callout callout-${type.toLowerCase()}`;
+
+	if (fold) {
+		const attrs: Record<string, unknown> = { className };
+		if (fold === "+") {
+			attrs.showContent = true;
+		}
+		const openAttr = fold === "+" ? " open" : "";
+		return block(
+			"details",
+			`<details class="wp-block-details ${className}"${openAttr}><summary>${title}</summary>${body}</details>`,
+			attrs,
+		);
+	}
+	const heading = paragraph(`<strong>${title}</strong>`);
+	return block(
+		"quote",
+		`<blockquote class="wp-block-quote ${className}">${[heading, body].filter(Boolean).join("\n\n")}</blockquote>`,
+		{ className },
+	);
+}
+
+function renderBlocks(
+	tokens: Token[],
+	start: number,
+	end: number,
+	env: Env,
+): string[] {
+	const out: string[] = [];
+	for (let i = start; i < end; i++) {
+		const token = tokens[i];
+		const close = token.nesting === 1 ? findClose(tokens, i) : i;
+
+		switch (token.type) {
+			case "paragraph_open": {
+				const inline = tokens[i + 1];
+				out.push(
+					...(imageOnlyParagraph(inline, env) ?? [
+						paragraph(renderInline(inline, env)),
+					]),
+				);
+				break;
+			}
+			case "heading_open": {
+				const level = Number(token.tag.slice(1));
+				const html = `<${token.tag} class="wp-block-heading">${renderInline(tokens[i + 1], env)}</${token.tag}>`;
+				out.push(
+					block("heading", html, level === 2 ? undefined : { level }),
+				);
+				break;
+			}
+			case "bullet_list_open":
+			case "ordered_list_open":
+				out.push(listBlock(tokens, i, close, env));
+				break;
+			case "blockquote_open":
+				out.push(
+					calloutBlock(tokens, i, close, env) ??
+						block(
+							"quote",
+							`<blockquote class="wp-block-quote">${renderBlocks(tokens, i + 1, close, env).join("\n\n")}</blockquote>`,
+						),
+				);
+				break;
+			case "table_open":
+				out.push(tableBlock(tokens, i, close, env));
+				break;
+			case "fence":
+			case "code_block":
+				out.push(
+					block(
+						"code",
+						`<pre class="wp-block-code"><code>${escape(token.content.replace(/\n$/, ""))}</code></pre>`,
+					),
+				);
+				break;
+			case "hr":
+				out.push(
+					block(
+						"separator",
+						`<hr class="wp-block-separator has-alpha-channel-opacity"/>`,
+					),
+				);
+				break;
+			case "html_block":
+				{
+					const html = token.content.trim();
+					if (html) {
+						out.push(block("html", html));
+					}
+				}
+				break;
+			case "footnote_block_open":
+				out.push(
+					block(
+						"html",
+						md.renderer
+							.render(tokens.slice(i, close + 1), md.options, env)
+							.trim(),
+					),
+				);
+				break;
+		}
+		i = close;
+	}
+	return out;
+}
+
+/** Converts a note body (without frontmatter) to block markup. */
+export function toBlocks(markdown: string, resolvers: Resolvers): string {
+	const env: Env = { resolvers };
+	const tokens = md.parse(stripComments(markdown), env);
+	return renderBlocks(tokens, 0, tokens.length, env).join("\n\n");
+}
+
+/** Lists the image paths a note references, as written, in order and without duplicates. */
+export function findImagePaths(markdown: string): string[] {
+	const paths = new Set<string>();
+	const visit = (tokens: Token[]) => {
+		for (const token of tokens) {
+			if (token.type === "image" || isImageEmbed(token)) {
+				paths.add(imageSpec(token).path);
+			}
+			if (token.children) {
+				visit(token.children);
+			}
+		}
+	};
+	visit(
+		md.parse(stripComments(markdown), {
+			resolvers: { image: () => undefined, link: () => undefined },
+		}),
+	);
+	return [...paths];
+}

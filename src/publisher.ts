@@ -1,7 +1,7 @@
 import { App, TFile, Notice, normalizePath, getFrontMatterInfo, parseYaml } from "obsidian";
-import type { PluginSettings, PublishResult, UploadedImage, WordPressPostPayload, PostStatus } from "./types";
+import type { PluginSettings, PublishResult, WordPressPostPayload, PostStatus } from "./types";
 import { WordPressClient } from "./wordpress-client";
-import { MarkdownConverter } from "./markdown-converter";
+import { findImagePaths, toBlocks, type ResolvedImage } from "./markdown-converter";
 import { normalizeFrontmatter, getTitle } from "./frontmatter";
 
 /** MIME type mapping for common image extensions */
@@ -15,7 +15,6 @@ const MIME_TYPES: Record<string, string> = {
 };
 
 export class Publisher {
-	private markdownConverter = new MarkdownConverter();
 	private inFlight = new Set<string>();
 
 	constructor(
@@ -62,17 +61,19 @@ export class Publisher {
 			const body = content.slice(info.contentStart);
 			const warnings: string[] = [];
 
-			const imageMap = new Map<string, UploadedImage>();
+			const imageMap = new Map<string, ResolvedImage>();
 			if (settings.uploadImages) {
 				warnings.push(...await this.uploadImages(file, body, imageMap));
 			}
 
-			this.markdownConverter.setImageMap(imageMap);
 			const status: PostStatus = overrideStatus ?? frontmatter.status ?? settings.defaultPostStatus;
 
 			const payload: WordPressPostPayload = {
 				title: getTitle(frontmatter, file.basename),
-				content: this.markdownConverter.convert(body),
+				content: toBlocks(body, {
+					image: (path) => imageMap.get(path),
+					link: (target) => this.publishedUrl(file, target),
+				}),
 				status,
 			};
 
@@ -121,25 +122,25 @@ export class Publisher {
 	}
 
 	/** Uploads local images, reusing earlier uploads of unchanged files. Returns descriptions of skipped images. */
-	private async uploadImages(file: TFile, content: string, imageMap: Map<string, UploadedImage>): Promise<string[]> {
+	private async uploadImages(file: TFile, content: string, imageMap: Map<string, ResolvedImage>): Promise<string[]> {
 		const settings = this.getSettings();
 		const skipped: string[] = [];
 		let cacheChanged = false;
 
-		for (const ref of this.markdownConverter.extractImageReferences(content)) {
-			if (imageMap.has(ref.path) || /^https?:\/\//.test(ref.path)) {
+		for (const path of findImagePaths(content)) {
+			if (/^https?:\/\//.test(path)) {
 				continue;
 			}
 
-			const imageFile = this.app.vault.getAbstractFileByPath(this.resolveImagePath(file, ref.path));
+			const imageFile = this.app.vault.getAbstractFileByPath(this.resolveImagePath(file, path));
 			if (!(imageFile instanceof TFile)) {
-				skipped.push(`missing image "${ref.path}"`);
+				skipped.push(`missing image "${path}"`);
 				continue;
 			}
 
 			const mimeType = MIME_TYPES[`.${imageFile.extension.toLowerCase()}`];
 			if (!mimeType) {
-				skipped.push(`unsupported image "${ref.path}"`);
+				skipped.push(`unsupported image "${path}"`);
 				continue;
 			}
 
@@ -153,18 +154,24 @@ export class Publisher {
 					settings.mediaCache[cacheKey] = cached;
 					cacheChanged = true;
 				} catch {
-					skipped.push(`image "${ref.path}" (upload failed)`);
+					skipped.push(`image "${path}" (upload failed)`);
 					continue;
 				}
 			}
 
-			imageMap.set(ref.path, { localPath: ref.path, wordpressUrl: cached.url, mediaId: cached.id });
+			imageMap.set(path, { url: cached.url, id: cached.id });
 		}
 
 		if (cacheChanged) {
 			await this.saveSettings();
 		}
 		return skipped;
+	}
+
+	private publishedUrl(from: TFile, target: string): string | undefined {
+		const dest = this.app.metadataCache.getFirstLinkpathDest(target, from.path);
+		const url: unknown = dest && this.app.metadataCache.getFileCache(dest)?.frontmatter?.wp_post_url;
+		return typeof url === "string" ? url : undefined;
 	}
 
 	private resolveImagePath(file: TFile, imagePath: string): string {

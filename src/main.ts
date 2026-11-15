@@ -5,6 +5,8 @@ import { WordPressClient } from "./wordpress-client";
 import { Publisher } from "./publisher";
 import { MissingFolderModal } from "./ui/missing-folder-modal";
 
+const LEGACY_PASSWORD_SECRET = "sync-for-wordpress-password";
+
 export default class SyncForWordPress extends Plugin {
 	settings!: PluginSettings;
 	wordpressClient!: WordPressClient;
@@ -126,7 +128,15 @@ export default class SyncForWordPress extends Plugin {
 	}
 
 	async loadSettings(): Promise<void> {
-		this.settings = Object.assign({}, DEFAULT_SETTINGS, (await this.loadData()) as Partial<PluginSettings>);
+		const { applicationPassword: legacyPassword, ...saved } =
+			((await this.loadData()) ?? {}) as Partial<PluginSettings> & { applicationPassword?: string };
+		this.settings = Object.assign({}, DEFAULT_SETTINGS, saved);
+		if (legacyPassword === undefined) return;
+		if (legacyPassword && !this.settings.applicationPasswordSecret) {
+			this.app.secretStorage.setSecret(LEGACY_PASSWORD_SECRET, legacyPassword);
+			this.settings.applicationPasswordSecret = LEGACY_PASSWORD_SECRET;
+		}
+		await this.saveSettings();
 	}
 
 	async saveSettings(): Promise<void> {

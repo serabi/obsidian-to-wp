@@ -76,6 +76,8 @@ test("callouts", () => {
 	assert.match(plain, /<p>body<\/p>/);
 	const folded = convert("> [!note]-\n> hidden");
 	assert.match(folded, /^<!-- wp:details \{"className":"callout callout-note"\} -->\n<details class="wp-block-details callout callout-note"><summary>Note<\/summary>/);
+	const withFootnote = convert("x[^1]\n\n> [!tip]- Title\n> body\n\n[^1]: note");
+	assert.equal(withFootnote.match(/footnotes-sep/g)?.length, 1);
 	assert.match(convert("> plain quote"), /<blockquote class="wp-block-quote"><!-- wp:paragraph -->\n<p>plain quote<\/p>/);
 });
 

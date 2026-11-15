@@ -288,7 +288,8 @@ function renderInline(token: Token, env: Env): string {
 }
 
 function renderInlineSource(src: string, env: Env): string {
-	return md.renderInline(src, env);
+	// A fresh parse re-runs the footnote tail rule, which would repeat the note's footnote list here.
+	return md.renderInline(src, { resolvers: env.resolvers });
 }
 
 function paragraph(html: string): string {

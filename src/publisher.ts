@@ -1,8 +1,8 @@
-import { App, TFile, Notice, normalizePath } from "obsidian";
-import type { PluginSettings, PublishResult, UploadedImage, WordPressPostPayload, PostStatus } from "./types";
+import { App, TFile, Notice, normalizePath, getFrontMatterInfo, parseYaml } from "obsidian";
+import type { PluginSettings, PublishResult, WordPressPostPayload, PostStatus } from "./types";
 import { WordPressClient } from "./wordpress-client";
-import { MarkdownConverter } from "./markdown-converter";
-import { parseFrontmatter, updateFrontmatter, getTitle } from "./frontmatter";
+import { findImagePaths, toBlocks, type ResolvedImage } from "./markdown-converter";
+import { normalizeFrontmatter, getTitle } from "./frontmatter";
 
 /** MIME type mapping for common image extensions */
 const MIME_TYPES: Record<string, string> = {
@@ -15,171 +15,163 @@ const MIME_TYPES: Record<string, string> = {
 };
 
 export class Publisher {
-	private app: App;
-	private getSettings: () => PluginSettings;
-	private wordpressClient: WordPressClient;
-	private markdownConverter: MarkdownConverter;
+	private inFlight = new Set<string>();
 
 	constructor(
-		app: App,
-		getSettings: () => PluginSettings,
-		wordpressClient: WordPressClient
-	) {
-		this.app = app;
-		this.getSettings = getSettings;
-		this.wordpressClient = wordpressClient;
-		this.markdownConverter = new MarkdownConverter();
-	}
+		private app: App,
+		private getSettings: () => PluginSettings,
+		private saveSettings: () => Promise<void>,
+		private wordpressClient: WordPressClient
+	) {}
 
 	isPublishable(file: TFile): boolean {
-		const settings = this.getSettings();
-		
-		if (!settings.publishableFolder) {
-			return file.extension === "md";
+		if (file.extension !== "md") {
+			return false;
 		}
-
-		const normalizedFolder = normalizePath(settings.publishableFolder);
-		return file.extension === "md" && file.path.startsWith(normalizedFolder);
+		const folder = this.getSettings().publishableFolder;
+		return !folder || file.path.startsWith(`${normalizePath(folder)}/`);
 	}
 
 	async publish(file: TFile, overrideStatus?: PostStatus): Promise<PublishResult> {
+		const result = await this.publishOnce(file, overrideStatus);
+		if (!result.success) {
+			new Notice(`Publishing failed: ${result.error}`);
+		}
+		return result;
+	}
+
+	private async publishOnce(file: TFile, overrideStatus?: PostStatus): Promise<PublishResult> {
 		const settings = this.getSettings();
 
-		if (!settings.siteUrl || !settings.username || !settings.applicationPassword) {
-			return {
-				success: false,
-				error: "WordPress connection not configured. Please check plugin settings.",
-			};
+		if (!this.wordpressClient.isConfigured()) {
+			return { success: false, error: "WordPress connection is not set up. Check the plugin settings." };
 		}
-
 		if (!this.isPublishable(file)) {
-			return {
-				success: false,
-				error: `File is not in the publishable folder: ${settings.publishableFolder}`,
-			};
+			return { success: false, error: `This note is not in the publishable folder: ${settings.publishableFolder}` };
+		}
+		if (this.inFlight.has(file.path)) {
+			return { success: false, error: "This note is already being published." };
 		}
 
+		this.inFlight.add(file.path);
 		try {
 			const content = await this.app.vault.read(file);
-			const frontmatter = parseFrontmatter(content);
+			const info = getFrontMatterInfo(content);
+			const frontmatter = normalizeFrontmatter(info.exists ? parseYaml(info.frontmatter) : {});
+			const body = content.slice(info.contentStart);
+			const warnings: string[] = [];
 
-			const imageMap = new Map<string, UploadedImage>();
+			const imageMap = new Map<string, ResolvedImage>();
 			if (settings.uploadImages) {
-				await this.uploadImages(file, content, imageMap);
+				warnings.push(...await this.uploadImages(file, body, imageMap));
 			}
 
-			this.markdownConverter.setImageMap(imageMap);
-			const gutenbergContent = this.markdownConverter.convert(content);
 			const status: PostStatus = overrideStatus ?? frontmatter.status ?? settings.defaultPostStatus;
 
 			const payload: WordPressPostPayload = {
 				title: getTitle(frontmatter, file.basename),
-				content: gutenbergContent,
+				content: toBlocks(body, {
+					image: (path) => imageMap.get(path),
+					link: (target) => this.publishedUrl(file, target),
+				}),
 				status,
 			};
 
-			if (frontmatter.slug && frontmatter.slug.trim().length > 0) {
-				payload.slug = frontmatter.slug.trim();
+			if (frontmatter.slug) {
+				payload.slug = frontmatter.slug;
 			}
 			if (frontmatter.excerpt) {
 				payload.excerpt = frontmatter.excerpt;
 			}
-			if (frontmatter.date && status === "future") {
+			if (frontmatter.date) {
 				payload.date = frontmatter.date;
 			}
 
-			if (frontmatter.categories && frontmatter.categories.length > 0) {
-				const categoryNames = frontmatter.categories.map((c) => String(c));
-				payload.categories = await this.wordpressClient.resolveCategoryIds(categoryNames);
+			if (frontmatter.categories?.length) {
+				const { ids, failed } = await this.wordpressClient.resolveTermIds("categories", frontmatter.categories.map(String));
+				payload.categories = ids;
+				warnings.push(...failed.map((name) => `category "${name}"`));
 			}
-			if (frontmatter.tags && frontmatter.tags.length > 0) {
-				payload.tags = await this.wordpressClient.resolveTagIds(frontmatter.tags);
-			}
-
-			let post;
-			if (frontmatter.wp_post_id) {
-				post = await this.wordpressClient.updatePost(frontmatter.wp_post_id, payload);
-
-				const updatedContent = updateFrontmatter(content, {
-					wp_post_url: post.link,
-					status: post.status,
-				});
-				await this.app.vault.modify(file, updatedContent);
-
-				new Notice(`Updated post: ${post.title.rendered}`);
-			} else {
-				post = await this.wordpressClient.createPost(payload);
-				
-				const updatedContent = updateFrontmatter(content, {
-					wp_post_id: post.id,
-					wp_post_url: post.link,
-					status: post.status,
-				});
-				await this.app.vault.modify(file, updatedContent);
-				
-				new Notice(`Published: ${post.title.rendered}`);
+			if (frontmatter.tags?.length) {
+				const { ids, failed } = await this.wordpressClient.resolveTermIds("tags", frontmatter.tags);
+				payload.tags = ids;
+				warnings.push(...failed.map((name) => `tag "${name}"`));
 			}
 
-			return {
-				success: true,
-				postId: post.id,
-				postUrl: post.link,
-			};
+			const post = frontmatter.wp_post_id
+				? await this.wordpressClient.updatePost(frontmatter.wp_post_id, payload)
+				: await this.wordpressClient.createPost(payload);
+
+			await this.app.fileManager.processFrontMatter(file, (fm: Record<string, unknown>) => {
+				fm.wp_post_id = post.id;
+				fm.wp_post_url = post.link;
+				fm.status = post.status;
+			});
+
+			new Notice(`${frontmatter.wp_post_id ? "Updated" : "Published"}: ${post.title.rendered}`);
+			if (warnings.length > 0) {
+				new Notice(`Skipped ${warnings.join(", ")}`, 8000);
+			}
+
+			return { success: true, postId: post.id, postUrl: post.link };
 		} catch (error) {
-			const message = error instanceof Error ? error.message : "Unknown error";
-			new Notice(`Publishing failed: ${message}`);
-			return {
-				success: false,
-				error: message,
-			};
+			return { success: false, error: error instanceof Error ? error.message : "Unknown error" };
+		} finally {
+			this.inFlight.delete(file.path);
 		}
 	}
 
-	private async uploadImages(
-		file: TFile,
-		content: string,
-		imageMap: Map<string, UploadedImage>
-	): Promise<void> {
-		const imageRefs = this.markdownConverter.extractImageReferences(content);
+	/** Uploads local images, reusing earlier uploads of unchanged files. Returns descriptions of skipped images. */
+	private async uploadImages(file: TFile, content: string, imageMap: Map<string, ResolvedImage>): Promise<string[]> {
+		const settings = this.getSettings();
+		const skipped: string[] = [];
+		let cacheChanged = false;
 
-		for (const ref of imageRefs) {
-			try {
-				if (ref.path.startsWith("http://") || ref.path.startsWith("https://")) {
-					continue;
-				}
-
-				// Resolve the image file path relative to the note
-				const imagePath = this.resolveImagePath(file, ref.path);
-				const imageFile = this.app.vault.getAbstractFileByPath(imagePath);
-
-				if (!(imageFile instanceof TFile)) {
-					console.warn(`Image not found: ${ref.path}`);
-					continue;
-				}
-
-				const ext = imageFile.extension.toLowerCase();
-				const mimeType = MIME_TYPES[`.${ext}`];
-				if (!mimeType) {
-					console.warn(`Unsupported image type: ${ext}`);
-					continue;
-				}
-
-				const data = await this.app.vault.readBinary(imageFile);
-				const media = await this.wordpressClient.uploadMedia(
-					imageFile.name,
-					data,
-					mimeType
-				);
-
-				imageMap.set(ref.path, {
-					localPath: ref.path,
-					wordpressUrl: media.source_url,
-					mediaId: media.id,
-				});
-			} catch (error) {
-				console.warn(`Failed to upload image ${ref.path}:`, error);
+		for (const path of findImagePaths(content)) {
+			if (/^https?:\/\//.test(path)) {
+				continue;
 			}
+
+			const imageFile = this.app.vault.getAbstractFileByPath(this.resolveImagePath(file, path));
+			if (!(imageFile instanceof TFile)) {
+				skipped.push(`missing image "${path}"`);
+				continue;
+			}
+
+			const mimeType = MIME_TYPES[`.${imageFile.extension.toLowerCase()}`];
+			if (!mimeType) {
+				skipped.push(`unsupported image "${path}"`);
+				continue;
+			}
+
+			const cacheKey = `${settings.siteUrl}|${imageFile.path}`;
+			let cached = settings.mediaCache[cacheKey];
+			if (!cached || cached.mtime !== imageFile.stat.mtime) {
+				try {
+					const data = await this.app.vault.readBinary(imageFile);
+					const media = await this.wordpressClient.uploadMedia(imageFile.name, data, mimeType);
+					cached = { id: media.id, url: media.source_url, mtime: imageFile.stat.mtime };
+					settings.mediaCache[cacheKey] = cached;
+					cacheChanged = true;
+				} catch {
+					skipped.push(`image "${path}" (upload failed)`);
+					continue;
+				}
+			}
+
+			imageMap.set(path, { url: cached.url, id: cached.id });
 		}
+
+		if (cacheChanged) {
+			await this.saveSettings();
+		}
+		return skipped;
+	}
+
+	private publishedUrl(from: TFile, target: string): string | undefined {
+		const dest = this.app.metadataCache.getFirstLinkpathDest(target, from.path);
+		const url: unknown = dest && this.app.metadataCache.getFileCache(dest)?.frontmatter?.wp_post_url;
+		return typeof url === "string" ? url : undefined;
 	}
 
 	private resolveImagePath(file: TFile, imagePath: string): string {

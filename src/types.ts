@@ -1,6 +1,3 @@
-/**
- * TypeScript interfaces and types for the Obsidian to WordPress plugin
- */
 
 /** WordPress post status options */
 export type PostStatus = "draft" | "publish" | "private" | "future";
@@ -11,8 +8,8 @@ export interface PluginSettings {
 	siteUrl: string;
 	/** WordPress username */
 	username: string;
-	/** WordPress Application Password */
-	applicationPassword: string;
+	/** ID of the application password in Obsidian's secret storage */
+	applicationPasswordSecret: string;
 	/** Folder path to scope publishable notes (empty = all notes) */
 	publishableFolder: string;
 	/** Default post status when publishing */
@@ -21,6 +18,14 @@ export interface PluginSettings {
 	uploadImages: boolean;
 	/** Whether to create a template file in the publishable folder */
 	createTemplate: boolean;
+	/** Uploaded media keyed by site URL and vault path, so unchanged images are not uploaded twice */
+	mediaCache: Record<string, CachedMedia>;
+}
+
+export interface CachedMedia {
+	id: number;
+	url: string;
+	mtime: number;
 }
 
 /** Frontmatter fields that map to WordPress post properties */
@@ -91,6 +96,7 @@ export interface WordPressError {
 	message: string;
 	data?: {
 		status: number;
+		term_id?: number;
 	};
 }
 
@@ -101,36 +107,3 @@ export interface PublishResult {
 	postUrl?: string;
 	error?: string;
 }
-
-/** Image reference found in markdown */
-export interface ImageReference {
-	/** Original markdown syntax (e.g., ![alt](path) or ![[wikilink]]) */
-	originalSyntax: string;
-	/** Path to the image file */
-	path: string;
-	/** Alt text if provided */
-	altText: string;
-	/** Whether this is a wikilink style embed */
-	isWikilink: boolean;
-}
-
-/** Uploaded image mapping */
-export interface UploadedImage {
-	/** Local path to the image */
-	localPath: string;
-	/** WordPress media URL after upload */
-	wordpressUrl: string;
-	/** WordPress media ID */
-	mediaId: number;
-}
-
-/** Callout type mapping to styling */
-export interface CalloutInfo {
-	type: string;
-	title: string;
-	content: string;
-	foldable: boolean;
-	defaultFolded: boolean;
-}
-
-

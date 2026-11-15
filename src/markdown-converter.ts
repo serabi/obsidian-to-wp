@@ -477,7 +477,7 @@ function calloutBlock(
 	if (first?.type !== "paragraph_open" || inline?.type !== "inline") {
 		return undefined;
 	}
-	const [firstLine, ...restLines] = inline.content.split("\n");
+	const [firstLine] = inline.content.split("\n");
 	const match = CALLOUT.exec(firstLine);
 	if (!match) {
 		return undefined;
@@ -486,9 +486,11 @@ function calloutBlock(
 	const title = rawTitle
 		? renderInlineSource(rawTitle, env)
 		: escape(type.charAt(0).toUpperCase() + type.slice(1).toLowerCase());
-	const rest = restLines.join("\n");
+	const children = inline.children ?? [];
+	const lineBreak = children.findIndex((t) => t.type === "softbreak" || t.type === "hardbreak");
+	const rest = lineBreak === -1 ? [] : children.slice(lineBreak + 1);
 	const body = [
-		...(rest.trim() ? [paragraph(renderInlineSource(rest, env))] : []),
+		...(rest.length ? [paragraph(md.renderer.renderInline(rest, md.options, env))] : []),
 		...renderBlocks(tokens, findClose(tokens, open + 1) + 1, close, env),
 	].join("\n\n");
 	const className = `callout callout-${type.toLowerCase()}`;
